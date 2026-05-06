@@ -141,18 +141,36 @@ spring:
 
 ---
 
-### 6. ✅ Security Configuration - COMPLETED
+### 6. ✅ Security — JWT Verification & Gateway Trust Model - COMPLETED
 
-**File Created**: `api-gateway/src/main/java/com/ecommerce/api_gateway/filter/SecurityFilter.java`
+**Files Modified/Created**: `api-gateway/src/main/java/com/ecommerce/api_gateway/filter/`
 
-**Functionality**:
-- Tags all gateway requests with `X-Gateway-Request: true`
-- Logs request paths for audit trails
-- Foundation for advanced security policies
+**Gateway Responsibilities:**
+- Verifies RS256 JWT tokens using the RSA public key
+- Extracts `userId` via `claims.getSubject()`, `email`, and `roles` from JWT claims
+- Injects headers into every downstream request:
+  - `X-User-Id` — user ID from JWT subject
+  - `X-User-Email` — user email from JWT claims
+  - `X-User-Roles` — user roles from JWT claims
+  - `X-Gateway-Secret` — internal secret proving the request came through the gateway
+- Returns 401 if token is missing or invalid on protected routes
+- Public routes (no token required): `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`
 
-**How Direct Access is Blocked** (in Docker):
-- In Docker Compose: Backend services are NOT exposed to host ports
-- Services only accessible via internal container network
+**Downstream Service Responsibilities (e.g., Product-Service):**
+- **No JWT/RS256 verification** — removed from downstream services
+- Validates `X-Gateway-Secret` — returns 403 if missing or incorrect
+- Builds Spring SecurityContext from `X-User-Id` and `X-User-Roles` headers
+- Enforces authorization rules based on roles
+
+**Product-Service Authorization Rules:**
+- `GET /products`, `GET /products/{id}` → USER or ADMIN
+- `POST /products` → ADMIN only
+- `PUT /products/{id}` → ADMIN only
+- `DELETE /products/{id}` → ADMIN only
+
+**How Direct Access is Blocked:**
+- Direct access to backend service ports (e.g., 8082) returns 403 without valid `X-Gateway-Secret`
+- Gateway secret configured via `GATEWAY_INTERNAL_SECRET` environment variable
 - External clients must go through gateway on port 8080
 
 ---
@@ -210,14 +228,21 @@ spring:
 External Client
       ↓
 http://localhost:8080/api/products
+Authorization: Bearer {jwt_token}
       ↓
 API Gateway
+      ↓
+Verifies RS256 JWT, extracts claims
+Injects X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret
       ↓
 Queries Eureka: "product-service"
       ↓
 Gets instance: localhost:8082
       ↓
-Routes request
+Routes request with injected headers
+      ↓
+Product Service validates X-Gateway-Secret
+Builds SecurityContext from headers
       ↓
 Service processes
       ↓

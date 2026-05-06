@@ -100,8 +100,10 @@ Stateless authentication token containing user information, signed digitally.
 
 **Format:** `header.payload.signature`  
 **Signature Algorithm:** RS256 (asymmetric RSA-2048)  
+**Verification:** Only at the API Gateway (port 8080) using the RSA public key  
 **Storage:** Browser localStorage (frontend)  
-**Expiry:** Access token 15 minutes, Refresh token 7 days
+**Expiry:** Access token 15 minutes, Refresh token 7 days  
+**Downstream services:** Do NOT verify JWT — they trust the gateway via X-Gateway-Secret header
 
 ### RS256 (RSA Signature with SHA-256)
 Asymmetric cryptographic algorithm using public-private key pair.
@@ -130,15 +132,29 @@ public void deleteProduct(UUID id) { }
 ## APIs & Communication
 
 ### API Gateway
-Single entry point for all client requests. Handles routing, authentication, rate limiting.
+Single entry point for all client requests. Handles routing, JWT verification, and header forwarding.
 
 **Technology:** Spring Cloud Gateway  
 **Port:** `:8080`  
 **Responsibilities:**
-- Extract JWT from Authorization header
-- Validate signature
+- Verify RS256 JWT tokens using RSA public key
+- Extract userId, email, roles from JWT claims
+- Inject X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret headers into downstream requests
+- Return 401 if token is missing or invalid
 - Route to backend service
-- Add correlation ID to all requests
+- Public routes (no token): /api/auth/login, /api/auth/register, /api/auth/refresh
+
+### Gateway Trust Model
+Security pattern where the API Gateway is the sole point of JWT verification, and downstream services trust the gateway.
+
+**How it works:**
+1. Gateway verifies JWT and extracts user info
+2. Gateway injects X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret into headers
+3. Downstream services validate X-Gateway-Secret (not JWT)
+4. Downstream services build SecurityContext from headers
+5. Direct access without X-Gateway-Secret returns 403
+
+**Gateway Secret:** Configured via `GATEWAY_INTERNAL_SECRET` environment variable
 
 ### OpenFeign
 Declarative HTTP client that simplifies inter-service REST calls.

@@ -7,13 +7,6 @@ spring:
       - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
   cloud:
     gateway:
-      globalcors:
-        corsConfigurations:
-          '[/**]':
-            allowedOrigins: "http://localhost:4200"
-            allowedMethods: GET, POST, PUT, DELETE, OPTIONS
-            allowedHeaders: Authorization, Content-Type, X-Correlation-Id
-            allowCredentials: true
       routes:
         # Auth Service
         - id: auth-service
@@ -28,6 +21,14 @@ spring:
           uri: lb://product-service
           predicates:
             - Path=/api/products/**
+          filters:
+            - StripPrefix=1
+
+        # Product Service Categories
+        - id: product-service-categories
+          uri: lb://product-service
+          predicates:
+            - Path=/api/categories/**
           filters:
             - StripPrefix=1
 
@@ -85,6 +86,14 @@ server:
 # The public key should match the one used by auth-service
 jwt:
   public-key: ${JWT_PUBLIC_KEY:}
+  public-routes:
+    - /api/auth/login
+    - /api/auth/register
+    - /api/auth/refresh
+    - /api/auth/logout
+
+gateway:
+  internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
 
 eureka:
   client:

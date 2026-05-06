@@ -44,3 +44,6 @@ logging:
     root: INFO
     com.netflix.eureka: OFF
     com.netflix.discovery: OFF
+
+gateway:
+  internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}

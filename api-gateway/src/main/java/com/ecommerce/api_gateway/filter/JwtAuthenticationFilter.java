@@ -33,7 +33,9 @@ public class JwtAuthenticationFilter implements GlobalFilter {
     private static final String AUTHORIZATION_HEADER = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
     private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String USER_EMAIL_HEADER = "X-User-Email";
     private static final String USER_ROLES_HEADER = "X-User-Roles";
+    private static final String GATEWAY_SECRET_HEADER = "X-Gateway-Secret";
 
     private static final List<String> PUBLIC_PATHS = List.of(
         "/api/auth/login",
@@ -43,6 +45,12 @@ public class JwtAuthenticationFilter implements GlobalFilter {
 
     @Value("${jwt.public-key:#{null}}")
     private String publicKeyBase64;
+
+    @Value("${jwt.public-routes:}")
+    private List<String> publicRoutes;
+
+    @Value("${gateway.internal-secret}")
+    private String gatewaySecret;
 
     private PublicKey publicKey;
 
@@ -56,7 +64,7 @@ public class JwtAuthenticationFilter implements GlobalFilter {
                 this.publicKey = keyFactory.generatePublic(publicKeySpec);
                 log.info("JWT public key loaded successfully");
             } else {
-                log.warn("JWT public key not configured. Token validation will fail.");
+                log.warn("JWT public key not configured. Waiting for dynamic key loading from auth-service.");
             }
         } catch (Exception e) {
             log.error("Failed to initialize JWT public key", e);
@@ -64,14 +72,23 @@ public class JwtAuthenticationFilter implements GlobalFilter {
         }
     }
 
+    public void setPublicKey(PublicKey publicKey) {
+        this.publicKey = publicKey;
+        log.info("JWT public key dynamically set from auth-service");
+    }
+
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getPath().value();
+        log.info("Gateway received request path: {}", path);
 
-        // Skip JWT validation for public routes
-        if (isPublicPath(path, request.getMethod().name())) {
-            return chain.filter(exchange);
+        // Skip JWT validation for public routes but still add gateway secret
+        if (isPublicPath(path)) {
+            ServerHttpRequest mutatedRequest = request.mutate()
+                    .header(GATEWAY_SECRET_HEADER, gatewaySecret)
+                    .build();
+            return chain.filter(exchange.mutate().request(mutatedRequest).build());
         }
 
         // Extract Authorization header
@@ -90,7 +107,8 @@ public class JwtAuthenticationFilter implements GlobalFilter {
             }
 
             // Extract user info from claims
-            String userId = claims.get("userId", String.class);
+            String userId = claims.getSubject();
+            String email = claims.get("email", String.class);
             @SuppressWarnings("unchecked")
             List<String> roles = claims.get("roles", List.class);
 
@@ -101,7 +119,9 @@ public class JwtAuthenticationFilter implements GlobalFilter {
             // Add headers to forwarded request
             ServerHttpRequest mutatedRequest = request.mutate()
                     .header(USER_ID_HEADER, userId)
+                    .header(USER_EMAIL_HEADER, email != null ? email : "")
                     .header(USER_ROLES_HEADER, roles != null ? String.join(",", roles) : "USER")
+                    .header(GATEWAY_SECRET_HEADER, gatewaySecret)
                     .build();
 
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
@@ -118,12 +138,19 @@ public class JwtAuthenticationFilter implements GlobalFilter {
         }
     }
 
-    private boolean isPublicPath(String path, String method) {
-        // Only skip POST requests to auth endpoints
-        if (!"POST".equalsIgnoreCase(method)) {
-            return false;
+    private boolean isPublicPath(String path) {
+        log.info("Checking if public path: '{}', publicRoutes: {}", path, publicRoutes);
+
+        // Check hardcoded public paths (exact match)
+        boolean isPublic = PUBLIC_PATHS.stream().anyMatch(path::equals);
+
+        // Check configurable public routes (prefix match)
+        if (!isPublic && publicRoutes != null && !publicRoutes.isEmpty()) {
+            isPublic = publicRoutes.stream().anyMatch(path::startsWith);
         }
-        return PUBLIC_PATHS.stream().anyMatch(path::startsWith);
+
+        log.info("isPublicPath result: {}", isPublic);
+        return isPublic;
     }
 
     private Claims validateAndExtractClaims(String token) {

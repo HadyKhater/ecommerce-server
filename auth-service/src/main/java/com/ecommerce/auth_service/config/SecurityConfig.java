@@ -32,7 +32,7 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .addFilterBefore(tokenBlacklistFilter, UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/api/auth/**", "/actuator/**", "/health").permitAll()
+                        .requestMatchers("/auth/**", "/actuator/**", "/health").permitAll()
                         .anyRequest().authenticated()
                 );
         return http.build();

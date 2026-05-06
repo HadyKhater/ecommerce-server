@@ -29,7 +29,7 @@ cd notification-service && mvn spring-boot:run
 # Gateway (External Entry Point)
 http://localhost:8080
 
-# Internal Services (Direct access in local development)
+# Internal Services (Direct access BLOCKED - 403 without X-Gateway-Secret)
 http://localhost:8081  # auth-service
 http://localhost:8082  # product-service
 http://localhost:8083  # inventory-service
@@ -84,11 +84,16 @@ curl http://localhost:8080/api/notifications
 curl http://localhost:8080/api/cart
 ```
 
-### Direct (✅ Works in Local Development)
+### Direct (❌ Blocked — 403 Forbidden)
 ```bash
-# Direct access works locally
+# Direct access to backend services is blocked
+# Returns 403 without valid X-Gateway-Secret
 curl http://localhost:8082/api/products
-curl http://localhost:8081/health
+# Expected: 403 Forbidden
+
+# Always use the gateway instead:
+curl http://localhost:8080/api/products \
+  -H "Authorization: Bearer <jwt_token>"
 ```
 
 ---
@@ -98,13 +103,13 @@ curl http://localhost:8081/health
 | Service | Port | Access | Database |
 |---------|------|--------|----------|
 | Eureka | 8761 | Direct | N/A |
-| Gateway | 8080 | External | N/A |
-| Auth | 8081 | Direct | auth_db |
-| Product | 8082 | Direct | product_db |
-| Inventory | 8083 | Direct | inventory_db |
-| Order | 8085 | Direct | order_db |
-| Payment | 8086 | Direct | payment_db |
-| Notification | 8087 | Direct | notification_db |
+| Gateway | 8080 | External (JWT verified here) | N/A |
+| Auth | 8081 | Internal (blocked w/o gateway secret) | auth_db |
+| Product | 8082 | Internal (blocked w/o gateway secret) | product_db |
+| Inventory | 8083 | Internal (blocked w/o gateway secret) | inventory_db |
+| Order | 8085 | Internal (blocked w/o gateway secret) | order_db |
+| Payment | 8086 | Internal (blocked w/o gateway secret) | payment_db |
+| Notification | 8087 | Internal (blocked w/o gateway secret) | notification_db |
 
 ---
 
@@ -219,6 +224,27 @@ http://localhost:8083          # ❌ Wrong (localhost not in container)
 
 ## 🔐 Important Security Points
 
+### Gateway Trust Model
+
+The API Gateway is the **sole point of JWT verification**. Downstream services trust the gateway.
+
+**Gateway (port 8080):**
+- Verifies RS256 JWT tokens using RSA public key
+- Extracts `userId` (subject), `email`, `roles` from JWT claims
+- Injects headers: `X-User-Id`, `X-User-Email`, `X-User-Roles`, `X-Gateway-Secret`
+- Returns 401 if token missing or invalid
+- Public routes (no token): `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`
+
+**Downstream services (e.g., Product-Service):**
+- **No JWT/RS256 verification** — removed
+- Validates `X-Gateway-Secret` — returns 403 if missing/wrong
+- Builds SecurityContext from `X-User-Id` and `X-User-Roles` headers
+- Enforces role-based authorization (e.g., ADMIN only for POST/PUT/DELETE on products)
+
+**Gateway Secret:**
+- Configured via `GATEWAY_INTERNAL_SECRET` environment variable
+- Direct access to backend ports (e.g., 8082) without this secret returns 403
+
 ### ✅ DO
 ```java
 // ✅ Use service names
@@ -226,10 +252,14 @@ http://localhost:8083          # ❌ Wrong (localhost not in container)
 interface InventoryClient { }
 
 // ✅ Route through gateway
-curl http://localhost:8080/api/products
+curl http://localhost:8080/api/products \
+  -H "Authorization: Bearer <jwt_token>"
 
 // ✅ Let Eureka handle routing
 // (automatically uses load balancing)
+
+// ✅ Validate X-Gateway-Secret in downstream services
+// Build SecurityContext from X-User-Id and X-User-Roles
 ```
 
 ### ❌ DON'T
@@ -238,12 +268,15 @@ curl http://localhost:8080/api/products
 @FeignClient(url = "http://localhost:8083")
 interface InventoryClient { }
 
-// ❌ Direct access to services (bypasses security)
+// ❌ Direct access to services (bypasses security, returns 403)
 curl http://localhost:8082/api/products
 
 // ❌ Bypass Eureka
 RestTemplate template = new RestTemplate();
 template.getForObject("http://localhost:8083/...", String.class);
+
+// ❌ Verify JWT in downstream services (gateway already did this)
+// Downstream services should only validate X-Gateway-Secret
 ```
 
 ---

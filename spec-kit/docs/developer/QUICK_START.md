@@ -143,13 +143,15 @@ curl http://localhost:8080/api/notifications
 # All should return appropriate responses or 404 (endpoint not implemented)
 ```
 
-### 4. Test Direct Access (Local Development)
+### 4. Test Direct Access (Blocked)
 ```bash
-# Direct access to backend services works locally
-curl http://localhost:8082/health
-# Expected: Success (in local development)
+# Direct access to backend services is BLOCKED (403)
+curl http://localhost:8082/products
+# Expected: 403 Forbidden (missing X-Gateway-Secret)
 
-curl http://localhost:8080/api/products
+# All requests must go through the gateway with a valid JWT:
+curl http://localhost:8080/api/products \
+  -H "Authorization: Bearer <jwt_token>"
 # Expected: Works through gateway
 ```
 
@@ -193,24 +195,28 @@ curl http://localhost:8761/eureka/apps/product-service/product-service:8082
 ```
 Client Request:
 GET http://localhost:8080/api/products
+Authorization: Bearer {jwt_token}
 
 Gateway Processing:
 1. Route Matching: Path=/api/products/** 
-2. Service Lookup: Eureka.getInstances("product-service")
-3. Load Balance: Select instance (currently 1)
-4. Forward: GET http://localhost:8082/products
-5. Response: Return to client
+2. JWT Verification: Verify RS256 signature with RSA public key
+3. Claim Extraction: Extract userId, email, roles from JWT claims
+4. Header Injection: Add X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret
+5. Service Lookup: Eureka.getInstances("product-service")
+6. Load Balance: Select instance (currently 1)
+7. Forward: GET http://localhost:8082/products (with injected headers)
+8. Response: Return to client
 
-Result: ✅ Works through gateway
+Result: ✅ Works through gateway with JWT
 ```
 
-### Direct Access (In Local Development)
+### Direct Access (Blocked)
 ```
 Client Request:
-GET http://localhost:8082/health
+GET http://localhost:8082/products
 
-Result: ✅ Works directly (in local development)
-Note: In Docker environment, this would be blocked
+Result: ❌ 403 Forbidden (missing X-Gateway-Secret)
+Note: All requests must go through the API Gateway
 ```
 
 ### Service-to-Service (Uses Feign)

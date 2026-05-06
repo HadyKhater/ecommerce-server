@@ -2,6 +2,7 @@ package com.ecommerce.auth_service.controller;
 
 import com.ecommerce.auth_service.dto.*;
 import com.ecommerce.auth_service.security.TokenBlacklistService;
+import com.ecommerce.auth_service.security.TokenProvider;
 import com.ecommerce.auth_service.service.IUserService;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
@@ -9,24 +10,27 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.util.Map;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/auth")
 public class AuthController {
 
     private final IUserService userService;
     private final TokenBlacklistService tokenBlacklistService;
+    private final TokenProvider tokenProvider;
 
-    public AuthController(IUserService userService, TokenBlacklistService tokenBlacklistService) {
+    public AuthController(IUserService userService, TokenBlacklistService tokenBlacklistService, TokenProvider tokenProvider) {
         this.userService = userService;
         this.tokenBlacklistService = tokenBlacklistService;
+        this.tokenProvider = tokenProvider;
     }
 
     @PostMapping("/register")
     public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterRequest request) {
         UserResponse response = userService.register(request);
-        return ResponseEntity.created(URI.create("/api/auth/users/" + response.id()))
+        return ResponseEntity.created(URI.create("/auth/users/" + response.id()))
                 .body(response);
     }
 
@@ -56,5 +60,11 @@ public class AuthController {
             log.info("User logged out, token blacklisted");
         }
         return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/public-key")
+    public ResponseEntity<Map<String, String>> getPublicKey() {
+        String publicKey = tokenProvider.getPublicKeyBase64();
+        return ResponseEntity.ok(Map.of("publicKey", publicKey));
     }
 }

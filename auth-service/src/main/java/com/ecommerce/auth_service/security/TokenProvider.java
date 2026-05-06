@@ -7,6 +7,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.*;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -36,6 +39,9 @@ public class TokenProvider {
     @Value("${jwt.public-key:#{null}}")
     private String publicKeyBase64;
 
+    @Value("${jwt.key-file-path:keys/auth-keypair.pem}")
+    private String keyFilePath;
+
     private PrivateKey privateKey;
     private PublicKey publicKey;
 
@@ -53,16 +59,51 @@ public class TokenProvider {
                 X509EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(publicKeyBytes);
                 this.publicKey = keyFactory.generatePublic(publicKeySpec);
             } else {
-                KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
-                keyGen.initialize(2048);
-                KeyPair keyPair = keyGen.generateKeyPair();
-                this.privateKey = keyPair.getPrivate();
-                this.publicKey = keyPair.getPublic();
-                log.info("Generated new RSA-2048 key pair");
+                Path path = Paths.get(keyFilePath);
+                if (Files.exists(path)) {
+                    loadKeyPairFromFile(path);
+                    log.info("Loaded existing RSA key pair from {}", keyFilePath);
+                } else {
+                    generateAndSaveKeyPair(path);
+                    log.info("Generated new RSA-2048 key pair and saved to {}", keyFilePath);
+                }
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize RSA keys", e);
         }
+    }
+
+    private void loadKeyPairFromFile(Path path) throws Exception {
+        String content = Files.readString(path);
+        String[] parts = content.split("\\|\\|\\|");
+        if (parts.length != 2) {
+            throw new IllegalArgumentException("Invalid key file format");
+        }
+
+        byte[] privateKeyBytes = Base64.getDecoder().decode(parts[0]);
+        byte[] publicKeyBytes = Base64.getDecoder().decode(parts[1]);
+
+        KeyFactory keyFactory = KeyFactory.getInstance("RSA");
+
+        PKCS8EncodedKeySpec privateKeySpec = new PKCS8EncodedKeySpec(privateKeyBytes);
+        this.privateKey = keyFactory.generatePrivate(privateKeySpec);
+
+        X509EncodedKeySpec publicKeySpec = new X509EncodedKeySpec(publicKeyBytes);
+        this.publicKey = keyFactory.generatePublic(publicKeySpec);
+    }
+
+    private void generateAndSaveKeyPair(Path path) throws Exception {
+        KeyPairGenerator keyGen = KeyPairGenerator.getInstance("RSA");
+        keyGen.initialize(2048);
+        KeyPair keyPair = keyGen.generateKeyPair();
+        this.privateKey = keyPair.getPrivate();
+        this.publicKey = keyPair.getPublic();
+
+        String privateKeyBase64Str = Base64.getEncoder().encodeToString(this.privateKey.getEncoded());
+        String publicKeyBase64Str = Base64.getEncoder().encodeToString(this.publicKey.getEncoded());
+
+        Files.createDirectories(path.getParent());
+        Files.writeString(path, privateKeyBase64Str + "|||" + publicKeyBase64Str);
     }
 
     public String generateAccessToken(User user) {
@@ -148,5 +189,9 @@ public class TokenProvider {
 
     public PublicKey getPublicKey() {
         return publicKey;
+    }
+
+    public String getPublicKeyBase64() {
+        return Base64.getEncoder().encodeToString(publicKey.getEncoded());
     }
 }

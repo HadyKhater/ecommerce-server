@@ -398,10 +398,10 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] Spring Boot project created and running on :8082
-- [ ] Registers with Eureka
-- [ ] PostgreSQL connection to `product_db` working
-- [ ] Caffeine cache configured
+- [x] Spring Boot project created and running on :8082
+- [x] Registers with Eureka
+- [x] PostgreSQL connection to `product_db` working
+- [x] Caffeine cache configured
 
 #### Implementation Steps
 
@@ -422,11 +422,11 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] Product and Category JPA entities created
-- [ ] ProductRepository with search queries
-- [ ] Flyway migration created and applied
-- [ ] Queries support search by name/description
-- [ ] Queries support filter by category
+- [x] Product and Category JPA entities created
+- [x] ProductRepository with search queries
+- [x] Flyway migration created and applied
+- [x] Queries support search by name/description
+- [x] Queries support filter by category
 
 #### Implementation Steps
 
@@ -459,13 +459,13 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] GET /api/products endpoint with query parameters
-- [ ] Search by keyword (name, description)
-- [ ] Filter by category
-- [ ] Filter by price range
-- [ ] Pagination working (page, size)
-- [ ] Response includes total count
-- [ ] Results cached in Caffeine for 15 minutes
+- [x] GET /api/products endpoint with query parameters
+- [x] Search by keyword (name, description)
+- [x] Filter by category
+- [x] Filter by price range
+- [x] Pagination working (page, size)
+- [x] Response includes total count
+- [x] Results cached in Caffeine for 15 minutes
 
 #### Implementation Steps
 
@@ -493,10 +493,10 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] GET /api/products/{id} endpoint
-- [ ] Returns product details with image
-- [ ] Returns 404 if not found
-- [ ] Response cached
+- [x] GET /api/products/{id} endpoint
+- [x] Returns product details with image
+- [x] Returns 404 if not found
+- [x] Response cached
 
 #### Implementation Steps
 
@@ -516,12 +516,12 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] POST /api/products endpoint (admin only)
-- [ ] Requires @PreAuthorize("hasRole('ADMIN')")
-- [ ] Validates all required fields
-- [ ] Price > 0, stock ≥ 0
-- [ ] Returns created product
-- [ ] Returns 403 if not admin
+- [x] POST /api/products endpoint (admin only)
+- [x] Requires @PreAuthorize("hasRole('ADMIN')")
+- [x] Validates all required fields
+- [x] Price > 0
+- [x] Returns created product
+- [x] Returns 403 if not admin
 
 #### Implementation Steps
 
@@ -543,10 +543,10 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] PUT /api/products/{id} endpoint (admin only)
-- [ ] All fields optional
-- [ ] Non-existent product returns 404
-- [ ] Returns 403 if not admin
+- [x] PUT /api/products/{id} endpoint (admin only)
+- [x] All fields optional
+- [x] Non-existent product returns 404
+- [x] Returns 403 if not admin
 
 #### Implementation Steps
 
@@ -566,10 +566,10 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] DELETE /api/products/{id} endpoint (admin only)
-- [ ] Soft delete (mark as deleted)
-- [ ] Product no longer appears in search
-- [ ] Order history preserved
+- [x] DELETE /api/products/{id} endpoint (admin only)
+- [x] Soft delete (mark as deleted)
+- [x] Product no longer appears in search
+- [x] Order history preserved
 
 #### Implementation Steps
 

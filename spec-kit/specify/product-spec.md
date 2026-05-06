@@ -445,9 +445,14 @@ Sent: 2026-04-30T14:23:45Z
 ### Security
 
 - **PCI Compliance:** (Not applicable—mock payment)
-- **JWT Validation:** On all protected endpoints
+- **JWT Verification:** Performed only at the API Gateway (RS256 with RSA public key)
+- **Gateway Trust Model:** Downstream services validate `X-Gateway-Secret` instead of verifying JWT directly
+- **Header-Based Auth:** Gateway injects `X-User-Id`, `X-User-Email`, `X-User-Roles`, `X-Gateway-Secret` into every downstream request
+- **Direct Access Blocked:** Backend services return 403 without valid `X-Gateway-Secret`
+- **Gateway Secret:** Configured via `GATEWAY_INTERNAL_SECRET` environment variable
 - **Password Strength:** BCrypt strength 12, minimum 8 characters
 - **Input Validation:** All user inputs validated
+- **Authorization:** Role-based access enforced at each service (e.g., ADMIN only for product mutations)
 
 ---
 

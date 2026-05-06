@@ -160,14 +160,39 @@ spring:
 
 ---
 
-### ✅ 6. Security Filter (DONE)
+### ✅ 6. Security — JWT Verification & Gateway Trust Model (DONE)
 
-**File**: `api-gateway/src/main/java/com/ecommerce/api_gateway/filter/SecurityFilter.java`
+**File**: `api-gateway/src/main/java/com/ecommerce/api_gateway/filter/`
 
-Initial security filter to track gateway requests. This ensures:
-- All requests are tagged with `X-Gateway-Request: true`
-- Request paths are logged for audit trails
-- Foundation for more advanced security policies
+The API Gateway is the sole point of JWT verification. Downstream services trust the gateway.
+
+**Gateway Responsibilities:**
+- Verifies RS256 JWT tokens using the RSA public key
+- Extracts `userId` via `claims.getSubject()`, `email`, and `roles` from JWT claims
+- Injects the following headers into every downstream request:
+  - `X-User-Id` — user ID from JWT subject
+  - `X-User-Email` — user email from JWT claims
+  - `X-User-Roles` — user roles from JWT claims
+  - `X-Gateway-Secret` — internal secret proving the request came through the gateway
+- Returns 401 if token is missing or invalid on protected routes
+- Public routes (no token required): `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh`
+
+**Downstream Service Responsibilities (e.g., Product-Service):**
+- **No JWT/RS256 verification** — removed from downstream services
+- Validates `X-Gateway-Secret` — returns 403 if missing or incorrect
+- Builds Spring SecurityContext from `X-User-Id` and `X-User-Roles` headers
+- Enforces authorization rules based on roles (e.g., ADMIN only for mutations)
+
+**Security Model:**
+- All requests must go through the Gateway on port 8080
+- Direct access to backend service ports (e.g., 8082) returns 403 without a valid `X-Gateway-Secret`
+- Gateway secret configured via `GATEWAY_INTERNAL_SECRET` environment variable
+
+**Product-Service Authorization Rules:**
+- `GET /products`, `GET /products/{id}` → USER or ADMIN
+- `POST /products` → ADMIN only
+- `PUT /products/{id}` → ADMIN only
+- `DELETE /products/{id}` → ADMIN only
 
 ---
 
@@ -305,10 +330,14 @@ public class OrderController {
 ### External Client Request
 ```
 1. Client: GET http://localhost:8080/api/products/123
+   - Authorization: Bearer {jwt_token}
                     ↓
 2. API Gateway (port 8080)
    - Matches route: Path=/api/products/**
-   - Strips prefix: /api/products → /products/123
+   - Verifies RS256 JWT signature with RSA public key
+   - Extracts userId, email, roles from JWT claims
+   - Strips prefix: /api/products/123 → /products/123
+   - Injects headers: X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret
    - Resolves lb://product-service
                     ↓
 3. Eureka Service Registry
@@ -316,7 +345,10 @@ public class OrderController {
    - Returns: [localhost:8082]
                     ↓
 4. Product Service (port 8082)
+   - Validates X-Gateway-Secret (403 if missing/wrong)
+   - Builds SecurityContext from X-User-Id and X-User-Roles
    - GET /products/123
+   - Checks authorization: USER or ADMIN required
    - Queries product_db
    - Returns: { id: "123", name: "...", price: ... }
                     ↓

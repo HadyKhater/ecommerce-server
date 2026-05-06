@@ -112,34 +112,39 @@ Caffeine Cache          │ - Search idx  │         │
 #### Responsibilities
 
 - **Request Routing:** Route requests to appropriate backend service
-- **JWT Validation:** Extract and validate JWT from Authorization header
+- **JWT Verification:** Verify RS256 JWT tokens using RSA public key; extract `userId` via `claims.getSubject()`, `email`, and `roles` from JWT claims
+- **Header Forwarding:** Inject `X-User-Id`, `X-User-Email`, `X-User-Roles`, and `X-Gateway-Secret` headers into every downstream request
 - **Rate Limiting:** Implement per-user rate limits (configurable)
 - **CORS Headers:** Add cross-origin headers for browser requests
 - **Error Handling:** Global exception handling, return RFC 7807 errors
 - **Request Logging:** Correlation ID injection
+- **401 Response:** Returned if token is missing or invalid on protected routes
 
-#### Route Configuration
+#### Public Routes (No Token Required)
 
-| Path | Service | Port |
-|---|---|---|
-| `/api/auth/**` | Auth Service | 8081 |
-| `/api/products/**` | Product Service | 8082 |
-| `/api/inventory/**` | Inventory Service | 8083 |
-| `/api/cart/**` | Cart Service | 8084 |
-| `/api/orders/**` | Order Service | 8085 |
-| `/api/payments/**` | Payment Service | 8086 |
-| `/health` | All Services | 8761 |
+- `POST /api/auth/login`
+- `POST /api/auth/register`
+- `POST /api/auth/refresh`
 
 #### Authentication Filter
 
 ```
-1. Extract JWT from Authorization: Bearer {token}
-2. Validate signature with public key
-3. Check expiration
-4. Extract user ID, roles
-5. Add to request headers (X-User-Id, X-User-Roles)
-6. Forward to backend service
+1. Check if request matches a public route → skip JWT check
+2. Extract JWT from Authorization: Bearer {token}
+3. Verify RS256 signature with RSA public key
+4. Check expiration
+5. Extract user ID (subject), email, roles from claims
+6. Add headers to downstream request:
+   - X-User-Id: <userId from claims.getSubject()>
+   - X-User-Email: <email from claims>
+   - X-User-Roles: <roles from claims>
+   - X-Gateway-Secret: <configured secret>
+7. Forward to backend service
+8. If token missing/invalid → return 401 Unauthorized
 ```
+
+> **Gateway Secret:** Configured via `GATEWAY_INTERNAL_SECRET` environment variable.
+> Downstream services validate this secret to ensure requests came through the gateway.
 
 ---
 
@@ -192,6 +197,25 @@ Caffeine Cache          │ - Search idx  │         │
 - Filter by category, price range, availability
 - Pagination on listings
 - Product caching with Caffeine
+
+#### Security Model (Gateway-Trust Pattern)
+
+Product-Service does **not** perform JWT/RS256 verification. It trusts the API Gateway:
+
+- **X-Gateway-Secret validation:** Returns `403 Forbidden` if the secret is missing or incorrect
+- **SecurityContext built from headers:** `X-User-Id` and `X-User-Roles` are used to construct the Spring Security context
+- **No RS256/JWT logic** in product-service — all JWT verification is done at the gateway
+- **Direct access blocked:** Requests to port 8082 without a valid `X-Gateway-Secret` return 403
+
+#### Authorization Rules
+
+| Method | Endpoint | Required Role |
+|--------|----------|---------------|
+| GET | `/products` | USER or ADMIN |
+| GET | `/products/{id}` | USER or ADMIN |
+| POST | `/products` | ADMIN only |
+| PUT | `/products/{id}` | ADMIN only |
+| DELETE | `/products/{id}` | ADMIN only |
 
 #### Database: `product_db` (PostgreSQL)
 
@@ -721,8 +745,8 @@ com.ecommerce.{servicename}/
 │   ├── OrderShippedEvent.java
 │   └── ...
 ├── security/
-│   ├── JwtAuthenticationFilter.java
-│   ├── CustomUserDetailsService.java
+│   ├── JwtAuthenticationFilter.java    (validates X-Gateway-Secret, builds SecurityContext from headers)
+│   ├── SecurityConfig.java
 │   └── ...
 └── {ServiceName}Application.java     (Spring Boot main)
 ```

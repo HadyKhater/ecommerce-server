@@ -90,18 +90,24 @@ Each folder represents a step in the development process:
                      │
         ┌────────────▼──────────────┐
         │     API Gateway :8080     │← All traffic goes here
-        │  - JWT validation         │
-        │  - Request routing        │
+        │  - JWT verification (RS256)│
+        │  - Header forwarding       │
+        │  - Request routing         │
         └────────────┬──────────────┘
                      │
     ┌────────────────┼───────────────────┐
     ▼                ▼                   ▼
 Auth         Product & Inventory    Order & Payment
 :8081        :8082, :8083          :8085, :8086
+(X-Gateway-Secret validated)
 
 Cart         Notification          Eureka
 :8084        :8087                 :8761
 ```
+
+> **Security Model:** Gateway verifies JWT and injects `X-User-Id`, `X-User-Email`, `X-User-Roles`, `X-Gateway-Secret` headers.
+> Downstream services validate `X-Gateway-Secret` — direct access without it returns 403.
+> Gateway secret configured via `GATEWAY_INTERNAL_SECRET` environment variable.
 
 ---
 
@@ -132,7 +138,7 @@ Authorization: Bearer {jwt_token}
 { "cartItems": [...], "address": {...} }
 ```
 
-### 2. Gateway validates JWT, routes to Order Service `:8085`
+### 2. Gateway validates JWT, extracts claims, injects headers, routes to Order Service `:8085`
 
 ### 3. Order Service:
    - Calls Inventory Service `:8083` to reserve stock (optimistic lock)

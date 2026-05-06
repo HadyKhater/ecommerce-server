@@ -143,9 +143,11 @@ All use service names, not hardcoded URLs
 - Health checks configured
 
 ### Security
-- Gateway security filter added
-- Backend services not exposed to host
-- Direct access blocked by network policy
+- JWT verification at API Gateway (RS256 with RSA public key)
+- Gateway extracts userId, email, roles from JWT claims and forwards as headers
+- Downstream services validate `X-Gateway-Secret` to ensure requests came through gateway
+- Direct access to backend services blocked (403 without gateway secret)
+- Gateway secret configured via `GATEWAY_INTERNAL_SECRET` environment variable
 
 ---
 
@@ -378,11 +380,10 @@ mvn dependency:tree              # View dependencies
 - Comprehensive documentation provided
 
 ### ❌ What Still Needs Implementation
-- Service endpoints (auth, products, etc.)
-- Business logic and database integration
-- JWT authentication in gateway
+- Business logic and database integration for remaining services
 - Circuit breaker patterns
 - Monitoring and alerting
+- Rate limiting in gateway
 
 ---
 
