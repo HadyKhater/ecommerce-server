@@ -54,7 +54,7 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleCategoryNotFound(CategoryNotFoundException ex) {
         log.warn("Category not found: {}", ex.getMessage());
 
-        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.NOT_FOUND);
         problem.setType(URI.create(BASE_TYPE + "category-not-found"));
         problem.setTitle("Category Not Found");
         problem.setDetail(ex.getMessage());

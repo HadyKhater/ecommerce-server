@@ -79,4 +79,6 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
 
     @Query("SELECT p FROM Product p WHERE p.price BETWEEN :minPrice AND :maxPrice AND p.deleted = false")
     Page<Product> findByPriceBetweenAndNotDeleted(@Param("minPrice") BigDecimal minPrice, @Param("maxPrice") BigDecimal maxPrice, Pageable pageable);
+
+    boolean existsByCategoryIdAndDeletedFalse(UUID categoryId);
 }
