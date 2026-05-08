@@ -17,4 +17,8 @@ public interface ICategoryService {
     CategoryResponse updateCategory(UUID id, CategoryRequest request);
 
     void deleteCategory(UUID id);
+
+    CategoryResponse toggleActive(UUID id);
+
+    CategoryResponse getCategoryBySlug(String slug);
 }

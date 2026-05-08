@@ -1,5 +1,6 @@
 package com.ecommerce.product_service.service;
 
+import com.ecommerce.product_service.client.InventoryClient;
 import com.ecommerce.product_service.dto.*;
 import com.ecommerce.product_service.entity.Category;
 import com.ecommerce.product_service.entity.Product;
@@ -29,6 +30,7 @@ public class ProductService implements IProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
+    private final InventoryClient inventoryClient;
 
     @Override
     @Cacheable(value = "product-search", key = "#request.hashCode()")
@@ -134,13 +136,25 @@ public class ProductService implements IProductService {
         product.setPrice(request.price());
         product.setCategory(category);
         product.setSku(request.sku());
-        product.setStockQuantity(request.stockQuantity() != null ? request.stockQuantity() : 0);
         product.setActive(request.active() != null ? request.active() : true);
         product.setImageUrls(joinImageUrls(request.imageUrls()));
         product.setDeleted(false);
 
         Product savedProduct = productRepository.save(product);
         log.info("Product created with id: {}", savedProduct.getId());
+
+        // Always initialize inventory in Inventory Service for new products
+        try {
+            inventoryClient.initializeInventory(savedProduct.getId(),
+                new InventoryClient.InitializeRequest(0));
+            log.info("Inventory initialized for product: {} with quantity: 0",
+                savedProduct.getId());
+        } catch (Exception e) {
+            // Log error but don't fail product creation
+            // Inventory can be initialized later via admin panel
+            log.warn("Failed to initialize inventory for product: {}. Error: {}",
+                savedProduct.getId(), e.getMessage());
+        }
 
         return mapToDTO(savedProduct);
     }
@@ -173,9 +187,6 @@ public class ProductService implements IProductService {
         }
         if (request.sku() != null) {
             product.setSku(request.sku());
-        }
-        if (request.stockQuantity() != null) {
-            product.setStockQuantity(request.stockQuantity());
         }
         if (request.active() != null) {
             product.setActive(request.active());
@@ -214,7 +225,6 @@ public class ProductService implements IProductService {
                 product.getCategory().getName(),
                 splitImageUrls(product.getImageUrls()),
                 product.getSku(),
-                product.getStockQuantity(),
                 product.getActive(),
                 product.getCreatedAt(),
                 product.getUpdatedAt()

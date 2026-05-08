@@ -6,6 +6,7 @@ import com.ecommerce.product_service.entity.Category;
 import com.ecommerce.product_service.exception.CategoryNotFoundException;
 import com.ecommerce.product_service.repository.CategoryRepository;
 import com.ecommerce.product_service.repository.ProductRepository;
+import com.ecommerce.product_service.util.SlugUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +44,16 @@ public class CategoryService implements ICategoryService {
     }
 
     @Override
+    public CategoryResponse getCategoryBySlug(String slug) {
+        log.debug("Fetching category by slug: {}", slug);
+
+        Category category = categoryRepository.findBySlug(slug)
+                .orElseThrow(() -> new CategoryNotFoundException("Category not found with slug: " + slug));
+
+        return mapToResponse(category);
+    }
+
+    @Override
     @Transactional
     public CategoryResponse createCategory(CategoryRequest request) {
         log.debug("Creating category with name: {}", request.name());
@@ -54,9 +65,15 @@ public class CategoryService implements ICategoryService {
         Category category = new Category();
         category.setName(request.name());
         category.setDescription(request.description());
+        category.setActive(request.active() != null ? request.active() : true);
+
+        // Generate unique slug from name
+        String baseSlug = SlugUtil.generateSlug(request.name());
+        String uniqueSlug = SlugUtil.generateUniqueSlug(baseSlug, categoryRepository::existsBySlug);
+        category.setSlug(uniqueSlug);
 
         Category savedCategory = categoryRepository.save(category);
-        log.info("Category created with id: {}", savedCategory.getId());
+        log.info("Category created with id: {} and slug: {}", savedCategory.getId(), savedCategory.getSlug());
 
         return mapToResponse(savedCategory);
     }
@@ -73,11 +90,20 @@ public class CategoryService implements ICategoryService {
             throw new IllegalArgumentException("Category name already exists");
         }
 
+        // Regenerate slug if name has changed
+        if (!category.getName().equals(request.name())) {
+            String baseSlug = SlugUtil.generateSlug(request.name());
+            String uniqueSlug = SlugUtil.generateUniqueSlug(baseSlug, slug ->
+                    categoryRepository.existsBySlug(slug) && !slug.equals(category.getSlug()));
+            category.setSlug(uniqueSlug);
+        }
+
         category.setName(request.name());
         category.setDescription(request.description());
+        if (request.active() != null) category.setActive(request.active());
 
         Category savedCategory = categoryRepository.save(category);
-        log.info("Category updated with id: {}", savedCategory.getId());
+        log.info("Category updated with id: {} and slug: {}", savedCategory.getId(), savedCategory.getSlug());
 
         return mapToResponse(savedCategory);
     }
@@ -103,7 +129,24 @@ public class CategoryService implements ICategoryService {
         return new CategoryResponse(
                 category.getId(),
                 category.getName(),
-                category.getDescription()
+                category.getSlug(),
+                category.getDescription(),
+                category.isActive()
         );
+    }
+
+    @Override
+    @Transactional
+    public CategoryResponse toggleActive(UUID id) {
+        log.debug("Toggling active status for category with id: {}", id);
+
+        Category category = categoryRepository.findById(id)
+                .orElseThrow(() -> new CategoryNotFoundException(id));
+
+        category.setActive(!category.isActive());
+        Category savedCategory = categoryRepository.save(category);
+        log.info("Category active status toggled to {} for id: {}", savedCategory.isActive(), id);
+
+        return mapToResponse(savedCategory);
     }
 }

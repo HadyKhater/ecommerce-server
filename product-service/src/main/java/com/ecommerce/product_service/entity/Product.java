@@ -32,9 +32,6 @@ public class Product {
     @Column(length = 100)
     private String sku;
 
-    @Column(name = "stock_quantity", nullable = false)
-    private Integer stockQuantity = 0;
-
     @Column(nullable = false)
     private Boolean active = true;
 

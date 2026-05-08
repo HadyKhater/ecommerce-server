@@ -23,8 +23,6 @@ public record UpdateProductRequest(
 
         String sku,
 
-        Integer stockQuantity,
-
         Boolean active
 ) {
 }

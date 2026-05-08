@@ -15,7 +15,6 @@ public record ProductDTO(
         String categoryName,
         List<String> imageUrls,
         String sku,
-        Integer stockQuantity,
         Boolean active,
         Instant createdAt,
         Instant updatedAt

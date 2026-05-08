@@ -28,8 +28,6 @@ public record CreateProductRequest(
 
         String sku,
 
-        Integer stockQuantity,
-
         Boolean active
 ) {
 }

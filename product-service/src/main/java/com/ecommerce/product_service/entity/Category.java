@@ -22,6 +22,9 @@ public class Category {
     @Column(nullable = false, unique = true)
     private String name;
 
+    @Column(nullable = false, unique = true)
+    private String slug;
+
     @Column(length = 500)
     private String description;
 
@@ -30,6 +33,9 @@ public class Category {
 
     @Column(nullable = false)
     private Instant updatedAt;
+
+    @Column(name = "active", nullable = false)
+    private boolean active = true;
 
     @PrePersist
     protected void onCreate() {

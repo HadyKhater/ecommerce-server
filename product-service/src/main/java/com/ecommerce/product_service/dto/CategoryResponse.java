@@ -6,7 +6,9 @@ import java.util.UUID;
 public record CategoryResponse(
         UUID id,
         String name,
-        String description
+        String slug,
+        String description,
+        boolean active
 ) implements Serializable {
 
     private static final long serialVersionUID = 1L;

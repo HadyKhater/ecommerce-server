@@ -16,4 +16,8 @@ public interface CategoryRepository extends JpaRepository<Category, UUID> {
     boolean existsByName(String name);
 
     List<Category> findAllByOrderByNameAsc();
+
+    Optional<Category> findBySlug(String slug);
+
+    boolean existsBySlug(String slug);
 }

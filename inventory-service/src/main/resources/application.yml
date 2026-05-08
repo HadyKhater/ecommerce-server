@@ -39,6 +39,9 @@ eureka:
     lease-renewal-interval-in-seconds: 10
     lease-expiration-duration-in-seconds: 30
 
+gateway:
+  internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
+
 logging:
   level:
     root: INFO

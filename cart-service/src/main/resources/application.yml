@@ -1,0 +1,101 @@
+spring:
+  application:
+    name: cart-service
+
+  # =============================================================================
+  # DATABASE CONFIGURATION
+  # =============================================================================
+  datasource:
+    url: jdbc:postgresql://localhost:5432/cart_db
+    username: postgres
+    password: 911911
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate  # Validate schema against entities, don't auto-create
+    show-sql: false       # Disable SQL logging in production
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+  # =============================================================================
+  # FLYWAY MIGRATION CONFIGURATION
+  # =============================================================================
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    out-of-order: false
+    validate-on-migrate: true
+
+  # =============================================================================
+  # CAFFEINE CACHE CONFIGURATION
+  # =============================================================================
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=1000,expireAfterWrite=5m,recordStats
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+server:
+  port: 8084
+
+# =============================================================================
+# EUREKA SERVICE DISCOVERY
+# =============================================================================
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+    register-with-eureka: true
+    fetch-registry: true
+    should-enforce-registration-at-init: true
+  instance:
+    hostname: localhost
+    prefer-ip-address: false
+    instance-id: ${spring.application.name}:${server.port}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
+
+# =============================================================================
+# GATEWAY SECURITY CONFIGURATION
+# =============================================================================
+# This secret must match the GATEWAY_INTERNAL_SECRET in api-gateway
+gateway:
+  internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
+
+# =============================================================================
+# LOGGING CONFIGURATION (Structured JSON)
+# =============================================================================
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%X{correlationId}] [%thread] %-5level %logger{36} - %msg%n"
+  level:
+    root: INFO
+    com.ecommerce.cart_service: DEBUG
+    com.netflix.eureka: WARN
+    com.netflix.discovery: WARN
+    org.springframework.cache: DEBUG
+
+# =============================================================================
+# ACTUATOR / HEALTH ENDPOINTS
+# =============================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,caches,metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+  health:
+    circuitbreakers:
+      enabled: true

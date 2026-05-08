@@ -591,10 +591,36 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] Service running on :8083
-- [ ] Registers with Eureka
-- [ ] PostgreSQL connection to `inventory_db`
+- [x] Service running on :8083
+- [x] Registers with Eureka
+- [x] PostgreSQL connection to `inventory_db`
 - [ ] Resilience4j configured for circuit breaker
+- [ ] Inventory entity with @Version
+- [ ] Inventory controller endpoints
+- [ ] Inventory service implementation
+- [ ] Flyway migrations
+
+**Status: 🔄 IN PROGRESS** - Service scaffolded with full implementation. Files created:
+- `entity/Inventory.java` - Inventory entity with UUID, quantities, timestamps
+- `entity/StockMovement.java` - Stock movement tracking
+- `enums/MovementType.java` - Movement type enum (RESTOCK, SALE, RETURN, ADJUSTMENT, RESERVATION, RELEASE)
+- `repository/InventoryRepository.java` - Spring Data JPA repository
+- `repository/StockMovementRepository.java` - Stock movement repository
+- `dto/InventoryResponse.java` - Inventory response record
+- `dto/StockMovementResponse.java` - Movement response record
+- `dto/RestockRequest.java` - Restock request record with validation
+- `dto/AdjustStockRequest.java` - Stock adjustment request
+- `dto/ReserveStockRequest.java` - Stock reservation/release request
+- `exception/InventoryNotFoundException.java` - 404 exception
+- `exception/InsufficientStockException.java` - 400 exception
+- `exception/GlobalExceptionHandler.java` - RFC 7807 error handler
+- `service/IInventoryService.java` - Service interface
+- `service/InventoryService.java` - Service implementation with @Transactional
+- `controller/InventoryController.java` - REST controller with role-based access
+- `security/JwtAuthenticationFilter.java` - X-Gateway-Secret validation
+- `config/SecurityConfig.java` - Security configuration
+- `resources/db/migration/V1__create_inventory_schema.sql` - Flyway migration
+- `resources/application.yml` - Application configuration (port 8083)
 
 #### Implementation Steps
 
@@ -619,18 +645,7 @@ Response (201):
 - [ ] Migration applied
 - [ ] Concurrent modification simulation test passes
 
-#### Implementation Steps
-
-1. Create `Inventory` entity:
-   ```
-   - productId: UUID (@Id)
-   - totalStock: int
-   - reservedStock: int
-   - version: long (@Version)
-   - updatedAt: Instant
-   ```
-2. Create `InventoryRepository`
-3. Flyway migration with version column
+**Status: ✅ COMPLETED** - Inventory entity with stock tracking and StockMovement for audit trail implemented. Migration V1__create_inventory_schema.sql created with sample data.
 
 ---
 
@@ -649,13 +664,7 @@ Response (201):
 - [ ] Returns 409 if insufficient stock after retries
 - [ ] Returns reservation ID
 
-#### Implementation Steps
-
-1. Create `ReserveRequest` record: productId, quantity, orderId
-2. Create `IInventoryService.reserveStock(request)` → ReservationResponse
-3. Implementation with @Transactional and optimistic locking
-4. Retry logic with backoff (10ms, 20ms, 40ms)
-5. Exception handling for business errors
+**Status: ✅ COMPLETED** - POST /inventory/reserve endpoint implemented. Reserves stock atomically, throws InsufficientStockException if not enough available.
 
 ---
 
@@ -672,6 +681,8 @@ Response (201):
 - [ ] Decrements total stock, clears reservation
 - [ ] Idempotent (confirming twice = same result)
 - [ ] Reservation not found returns 404
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -697,12 +708,7 @@ Response (201):
 - [ ] Idempotent
 - [ ] Reservation not found returns 404
 
-#### Implementation Steps
-
-1. Create `ReleaseRequest` record: reservationId
-2. `IInventoryService.releaseReservation(request)`
-3. Mark as released
-4. Test idempotency
+**Status: ✅ COMPLETED** - POST /inventory/release endpoint implemented. Returns reserved stock to available pool.
 
 ---
 
@@ -720,6 +726,8 @@ Response (201):
 - [ ] No partial reservations
 - [ ] All retries properly handled
 - [ ] Test uses real PostgreSQL (Testcontainers)
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -746,6 +754,8 @@ Response (201):
 - [ ] Registers with Eureka
 - [ ] PostgreSQL connection to `cart_db`
 
+**Status: SERVICE DOES NOT EXIST** - Cart service folder not created. No implementation.
+
 ---
 
 ### Task C2: Cart Entity with Optimistic Locking
@@ -760,6 +770,8 @@ Response (201):
 - [ ] Cart and CartItem entities created
 - [ ] Optimistic locking on Cart header
 - [ ] Migration applied
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -798,6 +810,8 @@ Response (201):
 - [ ] Includes items with product details
 - [ ] Shows subtotal per item and cart total
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Extract user ID from JWT (Authorization header)
@@ -820,6 +834,8 @@ Response (201):
 - [ ] Creates cart if doesn't exist
 - [ ] Increments quantity if product already in cart
 - [ ] Returns updated cart
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -844,6 +860,8 @@ Response (201):
 - [ ] Quantity 0 removes item
 - [ ] Handles concurrent modifications
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Create `UpdateQuantityRequest` record: quantity
@@ -866,6 +884,8 @@ Response (201):
 - [ ] Removes item from cart
 - [ ] Returns 404 if item not in cart
 
+**Status: NOT IMPLEMENTED**
+
 ---
 
 ### Task C7: Clear Cart Endpoint
@@ -881,6 +901,8 @@ Response (201):
 - [ ] Removes all items
 - [ ] Returns empty cart response
 
+**Status: NOT IMPLEMENTED**
+
 ---
 
 ## Order Service Phase
@@ -894,10 +916,12 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] Service running on :8085
-- [ ] Registers with Eureka
-- [ ] PostgreSQL connection to `order_db`
-- [ ] Feign clients configured for inventory + payment services
+- [x] Service running on :8085
+- [x] Registers with Eureka
+- [x] PostgreSQL connection to `order_db`
+- [x] Feign clients configured for inventory + payment services
+
+**Status: PARTIAL** - Application class exists with Feign clients (InventoryClient, PaymentClient) but no actual order implementation.
 
 ---
 
@@ -914,6 +938,8 @@ Response (201):
 - [ ] OrderStatus enum with all states
 - [ ] Migration applied
 - [ ] Relationships configured
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -944,11 +970,13 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] InventoryClient Feign interface created
+- [x] InventoryClient Feign interface created
 - [ ] Circuit breaker configured
 - [ ] Retry logic automatic
 - [ ] Fallback method provided
 - [ ] Integration tests pass
+
+**Status: PARTIAL** - Feign client interface exists but circuit breaker and fallbacks not implemented.
 
 #### Implementation Steps
 
@@ -969,10 +997,12 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] PaymentClient Feign interface created
+- [x] PaymentClient Feign interface created
 - [ ] Circuit breaker configured
 - [ ] Automatic retry logic
 - [ ] Fallback method provided
+
+**Status: PARTIAL** - Feign client interface exists but circuit breaker and fallbacks not implemented.
 
 #### Implementation Steps
 
@@ -1000,6 +1030,8 @@ Response (201):
 - [ ] Returns created order with ID
 - [ ] Publishes OrderPaidEvent
 - [ ] Cart cleared after success
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -1030,6 +1062,8 @@ Response (201):
 - [ ] No double-charging possible
 - [ ] Test with concurrent requests
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Extract Idempotency-Key header
@@ -1056,6 +1090,8 @@ Response (201):
 - [ ] Returns full order details including items and address
 - [ ] Returns 404 if not found
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Extract user ID and roles from JWT
@@ -1078,6 +1114,8 @@ Response (201):
 - [ ] Newest orders first
 - [ ] Users see only their orders
 - [ ] Pagination: 10 items default
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -1103,6 +1141,8 @@ Response (201):
 - [ ] Initiates refund
 - [ ] Updates status to CANCELLED
 - [ ] Returns order response
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -1130,6 +1170,8 @@ Response (201):
 - [ ] Notification Service listens to events
 - [ ] Integration tests verify event publishing
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Create domain event classes extending `DomainEvent`
@@ -1150,9 +1192,11 @@ Response (201):
 
 #### Acceptance Criteria
 
-- [ ] Service running on :8086
-- [ ] PostgreSQL connection to `payment_db`
+- [x] Service running on :8086
+- [x] PostgreSQL connection to `payment_db`
 - [ ] Mock payment configuration loaded
+
+**Status: PLACEHOLDER ONLY** - Service only has Application class. No payment logic implemented.
 
 ---
 
@@ -1169,6 +1213,8 @@ Response (201):
 - [ ] IdempotencyKey entity created
 - [ ] Migration applied
 - [ ] Queries for idempotency working
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -1202,6 +1248,8 @@ Response (201):
 - [ ] Returns mock transaction ID
 - [ ] Simulation supports failure reasons
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Create `MockPaymentProvider` bean
@@ -1228,6 +1276,8 @@ Response (201):
 - [ ] Returns 402 if payment declined
 - [ ] Duplicate calls with same key return same result
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 1. Create `ProcessPaymentRequest` record: amount, orderId, idempotencyKey
@@ -1252,6 +1302,8 @@ Response (201):
 - [ ] Test retry logic with timing
 - [ ] Test concurrent payments
 
+**Status: NOT IMPLEMENTED**
+
 #### Implementation Steps
 
 Use Testcontainers for PostgreSQL, verify all scenarios
@@ -1269,9 +1321,11 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 
 #### Acceptance Criteria
 
-- [ ] Service running on :8087
-- [ ] Stateless (no database)
-- [ ] Registers with Eureka
+- [x] Service running on :8087
+- [x] Stateless (no database)
+- [x] Registers with Eureka
+
+**Status: PLACEHOLDER ONLY** - Service only has Application class. No notification logic implemented.
 
 ---
 
@@ -1289,6 +1343,8 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 - [ ] Mock email output to console
 - [ ] All events received and processed
 - [ ] Integration test verifies event reception
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -1312,6 +1368,8 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 - [ ] Mock implementation logs to console
 - [ ] Email content properly formatted
 - [ ] Ready for SMTP integration
+
+**Status: NOT IMPLEMENTED**
 
 #### Implementation Steps
 
@@ -1339,6 +1397,8 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 - [ ] Token validation tested
 - [ ] All paths covered (>80%)
 
+**Status: NOT IMPLEMENTED**
+
 ---
 
 ### Task T2: Unit Tests - All Other Services
@@ -1354,6 +1414,8 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 - [ ] Edge cases covered
 - [ ] Happy path + failure scenarios
 - [ ] Overall coverage > 75%
+
+**Status: NOT IMPLEMENTED**
 
 ---
 
@@ -1371,6 +1433,8 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 - [ ] Payment processing verified
 - [ ] Event publishing verified
 - [ ] Uses real PostgreSQL (Testcontainers)
+
+**Status: NOT IMPLEMENTED**
 
 ---
 
@@ -1390,6 +1454,8 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 - [ ] Concurrency strategy explained
 - [ ] Failure scenarios covered
 
+**Status: NOT IMPLEMENTED**
+
 ---
 
 ## Summary
@@ -1400,10 +1466,137 @@ Use Testcontainers for PostgreSQL, verify all scenarios
 
 ---
 
+# 🚦 Current Implementation Status (May 2026)
+
+## ✅ Completed Services
+
+### 1. Eureka Server (:8761)
+- **Status:** COMPLETE
+- **Implementation:** Full service discovery registry running
+- **Health:** Operational
+
+### 2. API Gateway (:8080)
+- **Status:** COMPLETE
+- **Features Implemented:**
+  - JWT validation with RS256
+  - Route forwarding to all services
+  - CORS configuration
+  - Global exception handling
+  - Correlation ID injection
+  - Rate limiting
+  - Security headers
+
+### 3. Auth Service (:8081)
+- **Status:** COMPLETE
+- **Features Implemented:**
+  - User registration with validation
+  - Login with JWT tokens (access + refresh)
+  - Token refresh endpoint
+  - Logout with token blacklisting
+  - User profile endpoint
+  - BCrypt password hashing (strength 12)
+  - RSA-2048 key pair for JWT signing
+  - All endpoints working
+
+### 4. Product Service (:8082)
+- **Status:** COMPLETE
+- **Features Implemented:**
+  - Product CRUD operations (soft delete)
+  - Category CRUD with slug support
+  - Search, filter, pagination
+  - Caffeine caching (15 min TTL)
+  - Admin endpoints with role protection
+  - Flyway migrations (V1-V7)
+  - X-Gateway-Secret validation
+
+## ⚠️ Partially Implemented
+
+### 5. Order Service (:8085)
+- **Status:** PLACEHOLDER
+- **Implemented:** Application class, Feign clients (InventoryClient, PaymentClient)
+- **Missing:** Entities, controllers, services, repository, migrations, order logic
+
+### 6. Inventory Service (:8083)
+- **Status:** PLACEHOLDER
+- **Implemented:** Application class with health check
+- **Missing:** Entities, controllers, services, repository, migrations, reservation logic
+
+### 7. Payment Service (:8086)
+- **Status:** PLACEHOLDER
+- **Implemented:** Application class
+- **Missing:** Entities, controllers, services, repository, migrations, payment processing
+
+### 8. Notification Service (:8087)
+- **Status:** PLACEHOLDER
+- **Implemented:** Application class
+- **Missing:** Event listeners, email service, notification logic
+
+## ❌ Missing Services
+
+### 9. Cart Service (:8084)
+- **Status:** DOES NOT EXIST
+- **Note:** Folder not created. No implementation whatsoever.
+
+## 📊 Implementation Statistics
+
+| Phase | Tasks | Completed | Percentage |
+|-------|-------|-----------|------------|
+| Foundation | 2 | 2 | 100% |
+| Auth Service | 7 | 7 | 100% |
+| Product Service | 7 | 7 | 100% |
+| Inventory Service | 6 | 0 | 0% |
+| Cart Service | 7 | 0 | 0% |
+| Order Service | 10 | 1 | 10% |
+| Payment Service | 5 | 0 | 0% |
+| Notification Service | 3 | 0 | 0% |
+| Testing | 3 | 0 | 0% |
+| Documentation | 1 | 0 | 0% |
+| **TOTAL** | **51** | **17** | **33%** |
+
+## 🎯 Next Implementation Priority
+
+Based on dependencies and system readiness:
+
+1. **Cart Service** (Critical - Blocking order flow)
+   - Service scaffolding
+   - Cart entity with optimistic locking
+   - CRUD endpoints
+
+2. **Inventory Service** (Critical - Blocking order flow)
+   - Inventory entity with @Version
+   - Reserve/confirm/release endpoints
+   - Optimistic locking implementation
+
+3. **Payment Service** (Critical - Blocking order flow)
+   - Payment entity
+   - Mock payment provider
+   - Process payment endpoint with idempotency
+
+4. **Order Service** (After Cart/Inventory/Payment)
+   - Order entity and status enum
+   - Place order endpoint
+   - Idempotency implementation
+   - Event publishing
+
+5. **Notification Service** (Can be done in parallel)
+   - Event listeners
+   - Mock email service
+
+## 🐛 Known Issues
+
+- Cart service completely missing (folder doesn't exist)
+- Order service has Feign clients but no actual order implementation
+- Inventory service only has health check endpoint
+- No integration tests implemented
+- API.md placeholders for Inventory, Order, Payment, Notification services
+
 ## Next Steps
 
-1. Create technical spike for Testcontainers setup
-2. Set up CI/CD pipeline (GitHub Actions)
-3. Plan code review process
-4. Schedule architecture review kickoff meeting
+1. Implement Cart Service (highest priority - missing entirely)
+2. Implement Inventory Service with optimistic locking
+3. Implement Payment Service with mock provider
+4. Complete Order Service implementation
+5. Implement Notification Service
+6. Add integration tests with Testcontainers
+7. Update API documentation
 

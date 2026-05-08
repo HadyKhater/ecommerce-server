@@ -40,6 +40,15 @@ public class CategoryController {
         return ResponseEntity.ok(category);
     }
 
+    @GetMapping("/slug/{slug}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
+    public ResponseEntity<CategoryResponse> getCategoryBySlug(@PathVariable String slug) {
+        log.debug("GET /categories/slug/{} - Fetching category by slug", slug);
+
+        CategoryResponse category = categoryService.getCategoryBySlug(slug);
+        return ResponseEntity.ok(category);
+    }
+
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<CategoryResponse> createCategory(@Valid @RequestBody CategoryRequest request) {
@@ -67,5 +76,13 @@ public class CategoryController {
 
         categoryService.deleteCategory(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{id}/toggle-active")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<CategoryResponse> toggleActive(@PathVariable UUID id) {
+        log.debug("PATCH /categories/{}/toggle-active - Toggling active status", id);
+
+        return ResponseEntity.ok(categoryService.toggleActive(id));
     }
 }

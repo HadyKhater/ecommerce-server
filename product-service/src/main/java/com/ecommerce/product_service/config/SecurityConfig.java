@@ -28,10 +28,11 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/products", "/products/all", "/products/{id}").hasAnyRole("USER", "ADMIN")
-                .requestMatchers(HttpMethod.GET, "/categories", "/categories/{id}").hasAnyRole("USER", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/categories", "/categories/{id}", "/categories/slug/{slug}").hasAnyRole("USER", "ADMIN")
                 .requestMatchers(HttpMethod.POST, "/categories").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/categories/{id}").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/categories/{id}").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PATCH, "/categories/*/toggle-active").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/products").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/products/{id}").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.DELETE, "/products/{id}").hasRole("ADMIN")
