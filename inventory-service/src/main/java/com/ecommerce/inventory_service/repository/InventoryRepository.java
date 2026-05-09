@@ -16,4 +16,6 @@ public interface InventoryRepository extends JpaRepository<Inventory, UUID> {
     List<Inventory> findAllByQuantityAvailableLessThanEqual(int threshold);
 
     boolean existsByProductId(UUID productId);
+
+    long countByQuantityAvailable(int quantity);
 }

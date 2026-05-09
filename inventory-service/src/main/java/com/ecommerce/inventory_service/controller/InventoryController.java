@@ -52,6 +52,14 @@ public class InventoryController {
         return ResponseEntity.ok(items);
     }
 
+    @GetMapping("/out-of-stock/count")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<Map<String, Long>> getOutOfStockCount() {
+        log.debug("GET /inventory/out-of-stock/count - Getting out of stock count");
+        long count = inventoryService.getOutOfStockCount();
+        return ResponseEntity.ok(Map.of("count", count));
+    }
+
     @GetMapping("/{productId}/history")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<List<StockMovementResponse>> getMovementHistory(

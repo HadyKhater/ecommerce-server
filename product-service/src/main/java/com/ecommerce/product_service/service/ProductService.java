@@ -135,7 +135,12 @@ public class ProductService implements IProductService {
         product.setDescription(request.description());
         product.setPrice(request.price());
         product.setCategory(category);
-        product.setSku(request.sku());
+        
+        String sku = (request.sku() == null || request.sku().isBlank()) 
+                     ? UUID.randomUUID().toString() 
+                     : request.sku();
+        product.setSku(sku);
+        
         product.setActive(request.active() != null ? request.active() : true);
         product.setImageUrls(joinImageUrls(request.imageUrls()));
         product.setDeleted(false);

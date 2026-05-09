@@ -26,4 +26,6 @@ public interface IInventoryService {
     List<StockMovementResponse> getMovementHistory(UUID productId);
 
     boolean isInStock(UUID productId, int requiredQuantity);
+
+    long getOutOfStockCount();
 }

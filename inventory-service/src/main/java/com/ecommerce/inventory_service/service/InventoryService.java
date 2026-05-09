@@ -205,6 +205,12 @@ public class InventoryService implements IInventoryService {
         return inventory.get().getQuantityAvailable() >= requiredQuantity;
     }
 
+    @Override
+    public long getOutOfStockCount() {
+        log.debug("Getting out of stock count");
+        return inventoryRepository.countByQuantityAvailable(0);
+    }
+
     private void saveStockMovement(UUID productId, MovementType type, int quantity, String reason) {
         StockMovement movement = new StockMovement();
         movement.setProductId(productId);
