@@ -31,56 +31,65 @@ Out of scope:
 ## System Architecture Overview
 
 ```
-                    ┌─────────────────┐
-                    │   Browser/App   │
-                    └────────┬────────┘
-                             │ HTTPS
-                    ┌────────▼────────┐
-                    │  API Gateway    │
-                    │   :8080         │
-                    │  - JWT Filter   │
-                    │  - Rate Limit   │
-                    │  - Routing      │
-                    └─────────────────┘
-                             │
-        ┌────────────────────┼────────────────────┬────────────────────┐
-        │                    │                    │                    │
-   ┌────▼────┐          ┌────▼────┐         ┌────▼────┐          ┌────▼────┐
-   │  Auth   │          │ Product │         │Inventory│          │  Order  │
-   │ Service │          │ Service │         │ Service │          │ Service │
-   │ :8081   │          │ :8082   │         │ :8083   │          │ :8085   │
-   └────┬────┘          └────┬────┘         └────┬────┘          └────┬────┘
-        │                    │                    │                    │
-   ┌────▼─────────────────┐  │                    │              ┌────▼──────────┬──────────────┐
-   │PostgreSQL: auth_db   │  │                    │              │  PostgreSQL   │  Events via  │
-   │ - Users              │  │                    │              │  order_db     │  AppEvent    │
-   │ - Roles              │  │                    │              │  - Orders     │  Publisher   │
-   └──────────────────────┘  │                    │              │  - Outbox     │ (async)      │
-                             │                    │              └───────────────┴──────────────┘
-                        ┌────▼──────────┐         │
-                        │PostgreSQL:    │         │
-                        │product_db     │         │
-                        │ - Products    │         │
-                        │ - Categories  │         │
-Caffeine Cache          │ - Search idx  │         │
-(Product Cache)         └────────────────┘         │
-                                                   │
-                       ┌──────────────────────────▼──────┐
-                       │PostgreSQL: inventory_db         │
-                       │ - Current Stock                 │
-                       │ - Reservations (with @Version)  │
-                       │ - Version Lock                  │
-                       └─────────────────────────────────┘
+                         ┌─────────────────┐
+                         │   Browser/App   │
+                         │   Angular :4200 │
+                         └────────┬────────┘
+                                  │ HTTPS
+                         ┌────────▼────────┐
+                         │  API Gateway    │
+                         │   :8080         │
+                         │  - JWT Filter   │
+                         │  - Rate Limit   │
+                         │  - Routing      │
+                         │  - CORS         │
+                         └────────┬────────┘
+                                  │
+           ┌──────────────────────┼──────────────────────┐
+           │                      │                      │
+     ┌─────▼─────┐         ┌─────▼─────┐         ┌─────▼─────┐
+     │   Auth    │         │  Product  │         │ Inventory │
+     │ Service   │         │  Service  │         │  Service  │
+     │   :8081   │         │   :8082   │         │   :8083   │
+     └─────┬─────┘         └─────┬─────┘         └─────┬─────┘
+           │                     │                     │
+    ┌──────▼──────┐      ┌──────▼──────┐      ┌──────▼──────┐
+    │ auth_db     │      │ product_db  │      │ inventory_db│
+    │ - users     │      │ - products  │      │ - inventory │
+    │ - roles     │      │ - categories│      │ - movements │
+    │ - version   │      │ - search idx│      │ - version   │
+    └─────────────┘      └─────────────┘      └─────────────┘
 
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│ Cart Service │  │Payment Service│ │ Notification│  │Eureka Server │
-│  :8084       │  │  :8086       │  │ Service     │  │   :8761      │
-│              │  │              │  │  :8087      │  │              │
-└──────────────┘  └──────────────┘  └──────────────┘  └──────────────┘
-        │                  │                  │
-   ┌────▼────┐        ┌────▼────┐       (stateless)
-   │cart_db  │        │payment_db│      (no DB)
-   └─────────┘        └──────────┘
+           ┌─────────────────────────────────────────┐
+           │                                         │
+     ┌─────▼─────┐                           ┌─────▼─────┐
+     │    Cart   │                           │   Order   │
+     │  Service  │                           │  Service  │
+     │   :8084   │                           │   :8085   │
+     └─────┬─────┘                           └─────┬─────┘
+           │                                       │
+    ┌──────▼──────┐                         ┌──────▼──────┐
+    │  cart_db    │                         │  order_db   │
+    │  - carts    │                         │ - orders    │
+    │  - cart_items│                        │ - order_items│
+    │  - version  │                         │ - events    │
+    └─────────────┘                         └─────────────┘
+                                                  │
+    ┌──────────────┐  ┌──────────────┐     ┌─────▼─────┐
+    │   Payment    │  │ Notification │     │  Eureka   │
+    │   Service    │  │   Service    │     │  Server   │
+    │    :8086     │  │    :8087     │     │   :8761   │
+    └──────┬───────┘  └──────────────┘     └───────────┘
+           │
+    ┌──────▼──────┐
+    │ payment_db  │
+    │ - payments  │
+    │ - idempotency│
+    └─────────────┘
+
+    Frontend → API Gateway (8080) → Services (8081-8087)
+    Services trust Gateway via X-Gateway-Secret header
+    JWT RS256 verified only at Gateway
 ```
 
 ---
@@ -171,10 +180,16 @@ Caffeine Cache          │ - Search idx  │         │
 
 #### Key Endpoints
 
-- `POST /register` → Create user
-- `POST /login` → Issue tokens
-- `POST /refresh` → New access token
-- `GET /me` → Current user info
+| Method | Endpoint | Public | Description |
+|--------|----------|--------|-------------|
+| POST | `/auth/register` | ✅ Yes | Create new user account |
+| POST | `/auth/login` | ✅ Yes | Authenticate and get tokens |
+| POST | `/auth/refresh` | ✅ Yes | Get new access token |
+| GET | `/auth/me` | ❌ No | Get current user profile |
+| POST | `/auth/logout` | ❌ No | Blacklist current token |
+| GET | `/auth/public-key` | ✅ Yes | Get RSA public key for JWT verification |
+
+**Public Routes:** `/register`, `/login`, `/refresh`, `/public-key` (no JWT required)
 
 #### Security Details
 
@@ -252,109 +267,122 @@ Product-Service does **not** perform JWT/RS256 verification. It trusts the API G
 ### 5. Inventory Service `:8083`
 
 **Purpose:** Stock tracking, reservations, overselling prevention  
-**Framework:** Spring Boot + JPA
+**Framework:** Spring Boot + JPA  
+**Status:** ✅ **IMPLEMENTED** (needs @Version field for optimistic locking)
 
 #### Responsibilities
-- Track stock per product
+- Track stock per product (quantityAvailable, quantityReserved)
 - Reserve stock during checkout
-- Confirm reservations on payment success
-- Release reservations on failure
-- Prevent concurrent overselling
-- Support admin stock adjustments
+- Release reservations on failure/cancellation
+- Audit trail via stock_movements table
+- Admin stock adjustments (restock, adjust)
+- Low stock alerts
 
 #### Database: `inventory_db` (PostgreSQL)
 
 | Table | Purpose |
 |---|---|
-| `inventory` | Current stock per product (with `@Version` field) |
-| `reservations` | Pending stock reservations during checkout |
+| `inventory` | Current stock per product (NEEDS `@Version` field) |
+| `stock_movements` | Audit trail of all stock changes |
 
 #### Concurrent Safety Mechanism
 
-**Optimistic Locking Strategy:**
+**Current Implementation (No Optimistic Locking):**
+- Stock operations use `@Transactional` but lack `@Version`
+- Race conditions possible under high concurrency
+- **CRITICAL FIX NEEDED:** Add `@Version private Long version;` to Inventory entity
 
+**Schema:**
 ```sql
--- inventory table structure
 CREATE TABLE inventory (
-    product_id UUID PRIMARY KEY,
-    total_stock INTEGER NOT NULL,
-    reserved_stock INTEGER NOT NULL DEFAULT 0,
-    version INTEGER NOT NULL DEFAULT 0,
-    updated_at TIMESTAMP DEFAULT NOW()
+    id UUID PRIMARY KEY,
+    product_id UUID UNIQUE NOT NULL,
+    quantity_available INTEGER DEFAULT 0,
+    quantity_reserved INTEGER DEFAULT 0,
+    low_stock_threshold INTEGER DEFAULT 10,
+    version BIGINT,  -- NEEDS TO BE ADDED
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
 );
-
--- JPA Entity
-@Entity
-public class Inventory {
-    @Id
-    private UUID productId;
-    private int totalStock;
-    private int reservedStock;
-    @Version
-    private long version;  // Optimistic lock
-}
 ```
-
-**Reservation Workflow:**
-
-```
-1. Service calls inventoryService.reserve(productId, quantity)
-2. Read inventory record (version = 5)
-3. Check: (totalStock - reservedStock) >= quantity
-4. If YES: reservedStock += quantity, version++
-5. Attempt UPDATE ... WHERE version = 5
-6. If version mismatch: throw OptimisticLockException
-7. Caller retries (max 3 retries with backoff)
-```
-
-**Backoff Strategy:**
-- Retry 1: Wait 10 ms
-- Retry 2: Wait 20 ms
-- Retry 3: Wait 40 ms
-- Final: Fail order with "Out of Stock"
 
 #### Key Endpoints
 
-- `POST /api/inventory/reserve` → Reserve for order
-- `POST /api/inventory/confirm` → Confirm on payment success
-- `POST /api/inventory/release` → Release on payment failure
-- `GET /api/inventory/{id}` → Current stock
-- `POST /api/inventory/adjust` → Admin adjustment
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/inventory` | USER/ADMIN | List all inventory |
+| GET | `/inventory/{productId}` | USER/ADMIN | Get product inventory |
+| GET | `/inventory/{productId}/check?quantity=N` | USER/ADMIN | Check availability |
+| GET | `/inventory/low-stock` | ADMIN | Low stock items |
+| GET | `/inventory/out-of-stock/count` | USER/ADMIN | Count out of stock |
+| GET | `/inventory/{productId}/history` | ADMIN | Movement history |
+| POST | `/inventory/restock` | ADMIN | Add stock |
+| PUT | `/inventory/{productId}/adjust` | ADMIN | Direct adjustment |
+| POST | `/inventory/reserve` | USER/ADMIN | Reserve for order |
+| POST | `/inventory/release` | USER/ADMIN | Release reservation |
+| POST | `/inventory/initialize/{productId}` | ADMIN | Create inventory for product |
+
+#### Frontend Integration
+- **InventoryManagementComponent** (`inventory-management.component.ts`): Admin panel
+- **ProductListComponent**: Stock badges, out-of-stock indicators
+
+#### ⚠️ Known Issue
+**Missing `@Version` field** - The Inventory entity needs optimistic locking for concurrent reservation safety. Without it, race conditions can cause overselling under high load.
 
 ---
 
 ### 6. Cart Service `:8084`
 
 **Purpose:** Persistent shopping cart per user  
-**Framework:** Spring Boot + JPA
+**Framework:** Spring Boot + JPA  
+**Status:** ✅ **FULLY IMPLEMENTED**
 
 #### Responsibilities
-- Maintain cart per authenticated user
-- Add/update/remove items
-- Persist across sessions
-- Handle concurrent modifications safely
-- Calculate subtotals
+- Maintain cart per authenticated user (identified by email from X-User-Email header)
+- Add/update/remove items with inventory integration
+- Persist across sessions in PostgreSQL
+- Handle concurrent modifications with optimistic locking
+- Calculate subtotals and grand totals
 
 #### Database: `cart_db` (PostgreSQL)
 
 | Table | Purpose |
 |---|---|
 | `carts` | Cart header per user (with `@Version` for optimistic lock) |
-| `cart_items` | Items in cart (product ID, quantity, price snapshot) |
+| `cart_items` | Items in cart (product ID, quantity, unit price snapshot) |
 
 #### Concurrency Handling
 
-- **Optimistic Locking:** Cart header uses `@Version`
-- **Concurrent Modification:** 409 Conflict response, client reloads
-- **Item-Level:** Each cart line is private to cart ID, no direct contention
+- **Optimistic Locking:** Cart header uses `@Version` field
+- **User Identification:** Via `X-User-Email` header from Gateway (not JWT parsing)
+- **Duplicate Prevention:** Unique constraint on `(cart_id, product_id)` in cart_items
 
 #### Key Endpoints
 
-- `GET /api/cart` → View user's cart
-- `POST /api/cart/items` → Add item
-- `PUT /api/cart/items/{id}` → Update quantity
-- `DELETE /api/cart/items/{id}` → Remove item
-- `DELETE /api/cart` → Clear cart
+| Method | Endpoint | Access | Description |
+|--------|----------|--------|-------------|
+| GET | `/cart` | USER/ADMIN | View user's cart with all items |
+| POST | `/cart/items` | USER/ADMIN | Add item (creates cart if needed, increments if exists) |
+| PUT | `/cart/items/{productId}` | USER/ADMIN | Update quantity (0 removes item) |
+| DELETE | `/cart/items/{productId}` | USER/ADMIN | Remove item from cart |
+| DELETE | `/cart/clear` | USER/ADMIN | Clear all items |
+
+#### Response Format
+
+```json
+{
+  "cartId": "550e8400-e29b-41d4-a716-446655440000",
+  "userEmail": "user@example.com",
+  "items": [...],
+  "totalItemsCount": 2,
+  "grandTotal": 399.99
+}
+```
+
+#### Frontend Integration
+- **CartComponent** (`cart.component.ts`): Full cart management UI
+- **ProductListComponent**: Quick-add to cart with inventory check
+- **CartService** (`cart.service.ts`): HTTP client with cart count signal
 
 ---
 
@@ -852,10 +880,47 @@ All logs use JSON format with correlation ID:
 8082  → Product Service
 8083  → Inventory Service
 8084  → Cart Service
-8085  → Order Service
-8086  → Payment Service
-8087  → Notification Service
+8085  → Order Service (placeholder)
+8086  → Payment Service (placeholder)
+8087  → Notification Service (placeholder)
+4200  → Angular Frontend (ng serve)
 ```
+
+### Service-to-Route Mapping
+
+| Service | Port | Gateway Route | Internal Path | Public Routes |
+|---------|------|---------------|---------------|---------------|
+| Eureka | 8761 | (discovery) | /eureka | ❌ Internal only |
+| Gateway | 8080 | (entry point) | N/A | ✅ Single entry point |
+| Auth | 8081 | `/api/auth/**` | `/auth/**` | `/login`, `/register`, `/refresh` |
+| Product | 8082 | `/api/products/**` | `/products/**` | `GET /products`, `/products/{id}` |
+| | | `/api/categories/**` | `/categories/**` | `GET /categories`, `/categories/{id}` |
+| Inventory | 8083 | `/api/inventory/**` | `/inventory/**` | `GET /inventory/{id}/check` |
+| Cart | 8084 | `/api/cart/**` | `/cart/**` | None (all require auth) |
+| Order | 8085 | `/api/orders/**` | `/orders/**` | ⏳ Not implemented |
+| Payment | 8086 | `/api/payments/**` | `/payments/**` | ⏳ Not implemented |
+| Notification | 8087 | `/api/notifications/**` | `/notifications/**` | ⏳ Not implemented |
+
+> **Note:** Gateway uses `StripPrefix=1` so `/api/products` becomes `/products` internally.
+
+### Frontend Route Mapping (Angular)
+
+| Route | Component | Auth Required | Admin Only |
+|-------|-----------|---------------|----------|
+| `/` | HomeComponent | ❌ No | ❌ |
+| `/products` | ProductListComponent | ❌ No | ❌ |
+| `/products/:id` | ProductDetailComponent | ❌ No | ❌ |
+| `/cart` | CartComponent | ✅ Yes | ❌ |
+| `/checkout` | CheckoutComponent | ✅ Yes | ❌ |
+| `/login` | LoginComponent | ❌ No (redirects if auth) | ❌ |
+| `/register` | RegisterComponent | ❌ No | ❌ |
+| `/profile` | ProfileComponent | ✅ Yes | ❌ |
+| `/admin` | AdminLayoutComponent | ✅ Yes | ✅ Yes |
+| `/admin/products` | ProductManagementComponent | ✅ Yes | ✅ Yes |
+| `/admin/products/new` | ProductFormComponent | ✅ Yes | ✅ Yes |
+| `/admin/products/:id/edit` | ProductFormComponent | ✅ Yes | ✅ Yes |
+| `/admin/categories` | CategoryManagementComponent | ✅ Yes | ✅ Yes |
+| `/admin/inventory` | InventoryManagementComponent | ✅ Yes | ✅ Yes |
 
 ### Environment Configuration
 

@@ -85,9 +85,9 @@ Each folder represents a step in the development process:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    CLIENT / BROWSER                      │
+│              Angular Frontend :4200                     │
 └────────────────────┬────────────────────────────────────┘
-                     │
+                     │ HTTPS
         ┌────────────▼──────────────┐
         │     API Gateway :8080     │← All traffic goes here
         │  - JWT verification (RS256)│
@@ -97,33 +97,72 @@ Each folder represents a step in the development process:
                      │
     ┌────────────────┼───────────────────┐
     ▼                ▼                   ▼
-Auth         Product & Inventory    Order & Payment
-:8081        :8082, :8083          :8085, :8086
-(X-Gateway-Secret validated)
+Auth :8081     Product :8082       Inventory :8083
+- Register     - Products           - Stock levels
+- Login        - Categories         - Reservations
+- JWT tokens   - Search/filter      - Admin restock
 
-Cart         Notification          Eureka
-:8084        :8087                 :8761
+Cart :8084     Order :8085          Payment :8086
+- Add items    - Place orders        - Mock processing
+- Update qty   - View history        - Idempotency
+- Remove items - Cancel orders       - Retry logic
+- Clear cart   - Events              - (PLACEHOLDER)
+
+Notification :8087     Eureka :8761
+- Event listeners       - Service discovery
+- Mock emails           - Health checks
+- (PLACEHOLDER)
 ```
 
-> **Security Model:** Gateway verifies JWT and injects `X-User-Id`, `X-User-Email`, `X-User-Roles`, `X-Gateway-Secret` headers.
-> Downstream services validate `X-Gateway-Secret` — direct access without it returns 403.
-> Gateway secret configured via `GATEWAY_INTERNAL_SECRET` environment variable.
+> **Security Model:** Gateway verifies JWT RS256 and injects `X-User-Id`, `X-User-Email`, `X-User-Roles`, `X-Gateway-Secret` headers. Services validate `X-Gateway-Secret` — direct access without it returns 403.
 
 ---
 
 ## Services at a Glance
 
-| Service | Port | Database | Purpose |
-|---------|------|----------|---------|
-| Eureka | 8761 | (registry) | Service discovery |
-| Gateway | 8080 | (none) | API routing + JWT |
-| Auth | 8081 | auth_db | Users, tokens |
-| Product | 8082 | product_db | Catalog, search |
-| Inventory | 8083 | inventory_db | Stock (with optimistic lock) |
-| Cart | 8084 | cart_db | Shopping cart |
-| Order | 8085 | order_db | Order lifecycle |
-| Payment | 8086 | payment_db | Mock payment processor |
-| Notification | 8087 | (none) | Event-driven emails |
+| Service | Port | Database | Purpose | Status |
+|---------|------|----------|---------|--------|
+| Eureka | 8761 | (registry) | Service discovery | ✅ Complete |
+| Gateway | 8080 | (none) | API routing + JWT RS256 | ✅ Complete |
+| Auth | 8081 | auth_db | Users, tokens, logout | ✅ Complete |
+| Product | 8082 | product_db | Catalog, search, categories | ✅ Complete |
+| Inventory | 8083 | inventory_db | Stock, reserve, restock | ✅ Complete* |
+| Cart | 8084 | cart_db | Shopping cart | ✅ Complete |
+| Order | 8085 | order_db | Order lifecycle | ⏳ Placeholder |
+| Payment | 8086 | payment_db | Mock payment processor | ⏳ Placeholder |
+| Notification | 8087 | (none) | Event-driven emails | ⏳ Placeholder |
+
+*Inventory needs `@Version` field added for optimistic locking
+
+---
+
+## Startup Order
+
+Start services in this order:
+
+1. **PostgreSQL** (all databases must exist: `auth_db`, `product_db`, `inventory_db`, `cart_db`)
+2. **Eureka Server** (port 8761) - Services depend on this
+3. **Auth Service** (port 8081) - Gateway needs this for public key
+4. **API Gateway** (port 8080) - Fetches public key from auth-service on startup
+5. **Product Service** (port 8082)
+6. **Inventory Service** (port 8083)
+7. **Cart Service** (port 8084)
+8. **Angular Frontend** (port 4200): `ng serve`
+
+### Environment Variables Required
+
+```bash
+# API Gateway
+gateway.jwt.public-key=<RSA public key>  # Or fetched from auth-service
+gateway.internal.secret=super-secret-gateway-key
+
+# All Services (Auth, Product, Inventory, Cart)
+GATEWAY_INTERNAL_SECRET=super-secret-gateway-key
+DB_PASSWORD=<your_postgres_password>
+
+# Auth Service
+JWT_PRIVATE_KEY_PATH=keys/auth-keypair.pem
+```
 
 ---
 

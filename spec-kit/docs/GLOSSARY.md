@@ -138,23 +138,46 @@ Single entry point for all client requests. Handles routing, JWT verification, a
 **Port:** `:8080`  
 **Responsibilities:**
 - Verify RS256 JWT tokens using RSA public key
-- Extract userId, email, roles from JWT claims
-- Inject X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret headers into downstream requests
-- Return 401 if token is missing or invalid
-- Route to backend service
-- Public routes (no token): /api/auth/login, /api/auth/register, /api/auth/refresh
+
+### X-Gateway-Secret
+
+Internal header injected by API Gateway to prove requests came through the gateway. Services reject requests without this header (returns 403).
+
+**Header Value:** Configured via `GATEWAY_INTERNAL_SECRET` environment variable (default: "super-secret-gateway-key")
+**Pattern:** All backend services validate this in their security filters
+
+**Code Example (JwtAuthenticationFilter):**
+```java
+String secret = request.getHeader("X-Gateway-Secret");
+if (!expectedSecret.equals(secret)) {
+    response.sendError(HttpServletResponse.SC_FORBIDDEN);
+    return;
+}
+```
 
 ### Gateway Trust Model
-Security pattern where the API Gateway is the sole point of JWT verification, and downstream services trust the gateway.
+
+Security pattern where API Gateway is the sole point of JWT verification. Downstream services trust the gateway via X-Gateway-Secret.
 
 **How it works:**
-1. Gateway verifies JWT and extracts user info
-2. Gateway injects X-User-Id, X-User-Email, X-User-Roles, X-Gateway-Secret into headers
-3. Downstream services validate X-Gateway-Secret (not JWT)
-4. Downstream services build SecurityContext from headers
-5. Direct access without X-Gateway-Secret returns 403
+1. Gateway verifies JWT RS256 signature using RSA public key from auth-service
+2. Gateway extracts userId (from JWT subject), email, roles from claims
+3. Gateway injects headers into every downstream request:
+   - `X-User-Id` - UUID from JWT claims.getSubject()
+   - `X-User-Email` - User's email from claims
+   - `X-User-Roles` - Comma-separated roles (USER,ADMIN)
+   - `X-Gateway-Secret` - Proves request came through gateway
+4. Services validate X-Gateway-Secret (NOT JWT - that's Gateway's job)
+5. Services build SecurityContext from headers
+6. Direct access without X-Gateway-Secret returns 403
 
-**Gateway Secret:** Configured via `GATEWAY_INTERNAL_SECRET` environment variable
+**Benefits:**
+- Single point of JWT verification
+- Services focus on business logic
+- Prevents direct backend access
+- Defense in depth
+
+**Environment Variable:** `GATEWAY_INTERNAL_SECRET` (must match in Gateway and all services)
 
 ### OpenFeign
 Declarative HTTP client that simplifies inter-service REST calls.

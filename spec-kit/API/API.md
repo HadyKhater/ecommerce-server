@@ -247,6 +247,47 @@ All errors follow the Problem Details format:
 
 ---
 
+### POST /api/auth/logout
+
+**Description:** Logout user and blacklist the current token.
+
+**Headers:**
+- `Authorization`: `Bearer <access_token>`
+
+**Request Body:** None
+
+**Response 200:**
+```json
+{}
+```
+
+**Notes:**
+- Token is added to in-memory blacklist
+- Blacklisted tokens will be rejected on subsequent requests
+- Returns 200 even if no valid Authorization header
+
+---
+
+### GET /api/auth/public-key
+
+**Description:** Get RSA public key for JWT signature verification.
+
+**Access:** Public (no authentication required)
+
+**Response 200:**
+```json
+{
+  "publicKey": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA..."
+}
+```
+
+**Notes:**
+- Used by API Gateway to verify JWT tokens
+- Gateway fetches this on startup
+- Key is Base64-encoded RSA public key
+
+---
+
 ## Product Service (port 8082)
 
 > **Gateway Note:** The API Gateway uses `StripPrefix=1`.
@@ -432,7 +473,323 @@ Product-Service does **not** verify JWT tokens itself. It trusts the API Gateway
 
 ## Inventory Service (port 8083)
 
-[placeholder — to be filled]
+Base URL (external): `/api/inventory`
+Base URL (internal, after Gateway StripPrefix=1): `/inventory`
+
+### Security Model
+
+- All endpoints require `X-Gateway-Secret` header
+- Admin endpoints require `ADMIN` role in `X-User-Roles`
+
+### Endpoints
+
+#### GET /api/inventory
+
+**Description:** Get all inventory items.
+
+**Access:** USER, ADMIN
+
+**Response 200:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+    "quantityAvailable": 100,
+    "quantityReserved": 0,
+    "lowStockThreshold": 10,
+    "isLowStock": false,
+    "isOutOfStock": false,
+    "createdAt": "2026-01-01T10:00:00Z",
+    "updatedAt": "2026-01-01T10:00:00Z"
+  }
+]
+```
+
+---
+
+#### GET /api/inventory/{productId}
+
+**Description:** Get inventory for a specific product.
+
+**Access:** USER, ADMIN
+
+**Response 200:** InventoryResponse
+
+**Response 404:** Product not found in inventory
+
+---
+
+#### GET /api/inventory/{productId}/check?quantity={n}
+
+**Description:** Check if stock is available for a product.
+
+**Access:** USER, ADMIN
+
+**Query Parameters:**
+- `quantity` (required): Quantity to check
+
+**Response 200:**
+```json
+{
+  "available": true,
+  "quantityAvailable": 100
+}
+```
+
+---
+
+#### GET /api/inventory/low-stock
+
+**Description:** Get items with low stock (quantityAvailable <= lowStockThreshold).
+
+**Access:** ADMIN only
+
+**Response 200:** Array of InventoryResponse
+
+---
+
+#### GET /api/inventory/out-of-stock/count
+
+**Description:** Get count of out-of-stock items.
+
+**Access:** USER, ADMIN
+
+**Response 200:**
+```json
+{
+  "count": 3
+}
+```
+
+---
+
+#### GET /api/inventory/{productId}/history
+
+**Description:** Get stock movement history for a product.
+
+**Access:** ADMIN only
+
+**Response 200:**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440001",
+    "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+    "movementType": "RESTOCK",
+    "quantity": 50,
+    "reason": "Initial stock",
+    "createdAt": "2026-01-01T10:00:00Z"
+  }
+]
+```
+
+---
+
+#### POST /api/inventory/restock
+
+**Description:** Restock a product (increase available quantity).
+
+**Access:** ADMIN only
+
+**Request Body:**
+```json
+{
+  "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+  "quantity": 50,
+  "reason": "New shipment received"
+}
+```
+
+**Response 200:** Updated InventoryResponse
+
+---
+
+#### PUT /api/inventory/{productId}/adjust
+
+**Description:** Adjust stock levels directly (admin override).
+
+**Access:** ADMIN only
+
+**Request Body:**
+```json
+{
+  "quantityAvailable": 100,
+  "quantityReserved": 5,
+  "lowStockThreshold": 10,
+  "reason": "Stock count correction"
+}
+```
+
+**Response 200:** Updated InventoryResponse
+
+---
+
+#### POST /api/inventory/reserve
+
+**Description:** Reserve stock for an order.
+
+**Access:** USER, ADMIN (called by Order Service during checkout)
+
+**Request Body:**
+```json
+{
+  "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+  "quantity": 2,
+  "reason": "Order ORD-2026-001234"
+}
+```
+
+**Response 200:** Updated InventoryResponse
+
+**Response 400:** Insufficient stock
+
+---
+
+#### POST /api/inventory/release
+
+**Description:** Release reserved stock (on payment failure or order cancellation).
+
+**Access:** USER, ADMIN
+
+**Request Body:**
+```json
+{
+  "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+  "quantity": 2,
+  "reason": "Payment failed for order ORD-2026-001234"
+}
+```
+
+**Response 200:** Updated InventoryResponse
+
+---
+
+#### POST /api/inventory/initialize/{productId}
+
+**Description:** Initialize inventory for a product that doesn't have inventory yet.
+
+**Access:** ADMIN only
+
+**Request Body:**
+```json
+{
+  "initialQuantity": 100
+}
+```
+
+**Response 201:** Created InventoryResponse
+
+---
+
+## Cart Service (port 8084)
+
+Base URL (external): `/api/cart`
+Base URL (internal, after Gateway StripPrefix=1): `/cart`
+
+### Security Model
+
+- All endpoints require `X-Gateway-Secret` header
+- User identification via `X-User-Email` header (not JWT verification - gateway handles that)
+
+### Cart Response Format
+
+```json
+{
+  "cartId": "550e8400-e29b-41d4-a716-446655440000",
+  "userEmail": "user@example.com",
+  "items": [
+    {
+      "cartItemId": "550e8400-e29b-41d4-a716-446655440001",
+      "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+      "productName": "Wireless Headphones",
+      "quantity": 2,
+      "unitPrice": 199.99,
+      "totalPrice": 399.98,
+      "imageUrl": "https://example.com/headphones.jpg",
+      "createdAt": "2026-01-01T10:00:00Z",
+      "updatedAt": "2026-01-01T10:00:00Z"
+    }
+  ],
+  "totalItemsCount": 2,
+  "grandTotal": 399.99,
+  "createdAt": "2026-01-01T10:00:00Z",
+  "updatedAt": "2026-01-01T10:00:00Z"
+}
+```
+
+### Endpoints
+
+#### GET /api/cart
+
+**Description:** Get current user's cart with all items.
+
+**Access:** USER, ADMIN (identified by X-User-Email header)
+
+**Response 200:** CartResponse
+
+**Response 404:** Cart not found (user hasn't created one yet)
+
+---
+
+#### POST /api/cart/items
+
+**Description:** Add an item to cart. Creates cart if doesn't exist. Increments quantity if product already in cart.
+
+**Access:** USER, ADMIN
+
+**Request Body:**
+```json
+{
+  "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+  "quantity": 2
+}
+```
+
+**Response 200:** Updated CartResponse
+
+**Response 400:** Invalid request (product not found, insufficient stock)
+
+---
+
+#### PUT /api/cart/items/{productId}
+
+**Description:** Update quantity of an item in cart. Quantity 0 removes the item.
+
+**Access:** USER, ADMIN
+
+**Request Body:**
+```json
+{
+  "quantity": 3
+}
+```
+
+**Response 200:** Updated CartResponse
+
+**Response 404:** Item not in cart
+
+---
+
+#### DELETE /api/cart/items/{productId}
+
+**Description:** Remove an item from cart.
+
+**Access:** USER, ADMIN
+
+**Response 200:** Updated CartResponse
+
+**Response 404:** Item not in cart
+
+---
+
+#### DELETE /api/cart/clear
+
+**Description:** Clear all items from cart (empty cart).
+
+**Access:** USER, ADMIN
+
+**Response 200:** Empty CartResponse (or 204 No Content)
 
 ---
 
