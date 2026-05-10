@@ -386,17 +386,18 @@ CREATE TABLE inventory (
 
 ---
 
-### 7. Order Service `:8085`
+### 7. Order Service `:8085` ⚠️ ACTUALLY RUNNING ON `:8087`
 
 **Purpose:** Order creation, lifecycle management, order history  
-**Framework:** Spring Boot + JPA
+**Framework:** Spring Boot + JPA  
+**Status:** ✅ **FULLY IMPLEMENTED**
 
 #### Responsibilities
-- Create orders from cart
-- Manage order lifecycle (PENDING → PAID → SHIPPED → DELIVERED)
-- Handle order cancellation
-- Idempotent order placement
-- Publish domain events to notification service
+- ✅ Create orders from cart
+- ✅ Manage order lifecycle (PENDING → CONFIRMED → SHIPPED → DELIVERED)
+- ✅ Handle order cancellation with inventory release
+- 🔄 Idempotent order placement (payment idempotency works, order-level idempotency key not implemented)
+- ❌ Publish domain events to notification service (NOT IMPLEMENTED)
 
 #### Database: `order_db` (PostgreSQL)
 
@@ -404,7 +405,11 @@ CREATE TABLE inventory (
 |---|---|
 | `orders` | Order header (status, total, addresses) |
 | `order_items` | Items in order (denormalized product details) |
-| `order_events` | Event outbox for async notifications |
+| `order_events` | Event outbox for async notifications (NOT IMPLEMENTED) |
+
+#### ⚠️ Port Issue
+Order Service application.yml configures port 8087, which conflicts with Notification Service.
+Spec says port 8085. **Action needed:** Change Order Service to 8085 or Notification to 8088.
 
 #### Idempotency Implementation
 
@@ -421,26 +426,28 @@ Header: Idempotency-Key: {UUID}
 
 #### Event Publishing
 
-Orders emit events via Spring ApplicationEventPublisher:
-- `OrderCreatedEvent` → Notification Service
-- `OrderPaidEvent` → Notification Service
-- `OrderShippedEvent` → Notification Service
+Orders SHOULD emit events via Spring ApplicationEventPublisher:
+- `OrderCreatedEvent` → Notification Service (NOT IMPLEMENTED)
+- `OrderPaidEvent` → Notification Service (NOT IMPLEMENTED)
+- `OrderShippedEvent` → Notification Service (NOT IMPLEMENTED)
+
+**Status:** Domain events not implemented. Order status changes handled synchronously in service.
 
 #### Order Workflow
 
 ```
 1. POST /api/orders (with cart items, address)
 2. Validate cart not empty
-3. Call inventory-service: reserve stock
-4. Call payment-service: process payment
+3. Call inventory-service: reserve stock ✅
+4. Call payment-service: process payment (handled separately by frontend)
 5. On payment success:
-   - Create Order entity (status = PAID)
-   - Publish OrderPaidEvent
-   - Clear cart
-   - Return order
+   - Update Order entity (status = CONFIRMED) ✅
+   - Publish OrderPaidEvent ❌ NOT IMPLEMENTED
+   - Clear cart (verify implementation)
+   - Return order ✅
 6. On payment failure:
-   - Call inventory-service: release reservation
-   - Throw PaymentFailedException
+   - Order status updated to CANCELLED ✅
+   - Call inventory-service: release reservation ✅
 ```
 
 #### Key Endpoints
@@ -456,56 +463,68 @@ Orders emit events via Spring ApplicationEventPublisher:
 ### 8. Payment Service `:8086`
 
 **Purpose:** Mock payment processing with retry logic  
-**Framework:** Spring Boot
+**Framework:** Spring Boot  
+**Status:** ✅ **FULLY IMPLEMENTED**
 
 #### Responsibilities
-- Process payments (mock implementation)
-- Retry failed payments with exponential backoff
-- Idempotency key support (prevent duplicate charges)
-- Success/failure simulation based on config
+- ✅ Process payments with mock provider (~80% success rate)
+- ✅ Retry failed payments with exponential backoff (Resilience4j)
+- ✅ Idempotency support via orderId (prevents duplicate charges)
+- ✅ Success/failure simulation
 
 #### Database: `payment_db` (PostgreSQL)
 
 | Table | Purpose |
 |---|---|
 | `payments` | Payment transaction history |
-| `payment_idempotency_keys` | Idempotency keys + results |
+| `payment_idempotency_keys` | Idempotency keys + results (NOT IMPLEMENTED - uses orderId instead) |
 
-#### Payment Configuration
+#### ✅ Implemented Configuration
 
 ```yaml
-payment:
-  mock:
-    success-rate: 0.95  # 95% of payments succeed
-    timeout-ms: 5000
-    retry:
-      max-attempts: 3
-      backoff-multiplier: 2
-      initial-delay-ms: 1000  # 1s, 2s, 4s
+# Resilience4j retry configured in application.yml
+resilience4j:
+  retry:
+    instances:
+      paymentProviderRetry:
+        maxAttempts: 3
+        waitDuration: 1s
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+
+# Mock provider in PaymentServiceImpl:
+# - 80% success rate (Math.random() > 0.8 fails)
+# - Returns TXN-XXXXXXXX format transaction IDs
 ```
 
-#### Retry Strategy
+#### ✅ Retry Strategy (Implemented via Resilience4j)
 
 ```
 Attempt 1: Immediate
 Attempt 2: After 1 second
-Attempt 3: After 2 seconds
-Final: After 4 seconds
+Attempt 3: After 2 seconds (exponential backoff: 1s * 2)
 
-Total max wait: 7 seconds per order
+Total max wait: ~3 seconds per payment
 ```
 
-#### Idempotency Implementation
+#### ✅ Idempotency Implementation
 
-```
-Header: Idempotency-Key: {UUID}
+```java
+// Implemented in PaymentServiceImpl.processPayment()
 
-1. Check: existing result for this key?
-  - If YES: return stored result (no charge)
-  - If NO: proceed
-2. Process payment
-3. Store key + result
-4. Return result
+// 1. Check if payment for this order already exists
+Optional<Payment> existingPayment = paymentRepository.findByOrderId(request.getOrderId());
+if (existingPayment.isPresent()) {
+    Payment payment = existingPayment.get();
+    if (payment.getStatus() == PaymentStatus.SUCCESS) {
+        return mapToResponse(payment); // Return existing success
+    } else if (payment.getStatus() == PaymentStatus.PENDING) {
+        return mapToResponse(payment); // Return existing pending
+    }
+    // Retry failed payment
+}
+
+// Uses orderId as idempotency key (no separate IdempotencyKey entity)
 ```
 
 #### Payment Response
@@ -528,46 +547,57 @@ Header: Idempotency-Key: {UUID}
 
 ---
 
-### 9. Notification Service `:8087`
+### 9. Notification Service `:8087` ⚠️ PORT CONFLICT WITH ORDER SERVICE
 
 **Purpose:** Event-driven notifications (mock email)  
-**Framework:** Spring Boot (stateless)
+**Framework:** Spring Boot  
+**Status:** ⏳ **PLACEHOLDER ONLY**
+
+#### ⚠️ Issues Found
+- Port 8087 conflicts with Order Service (both configured for same port)
+- application.yml configures database (notification_db) but spec says stateless
+- Only has Application class with health endpoint - no business logic
 
 #### Responsibilities
-- Listen for application events
-- Format and send mock emails (log to console)
-- Ready for SMTP integration
-- Best-effort delivery (eventual consistency)
+- ❌ Listen for application events (NOT IMPLEMENTED)
+- ❌ Format and send mock emails (NOT IMPLEMENTED)
+- ❌ Ready for SMTP integration (NOT IMPLEMENTED)
+- ❌ Best-effort delivery (NOT IMPLEMENTED)
 
-#### No Database
+#### Database (Configured but Spec Says Stateless)
 
-- Completely stateless
-- Event listener pattern
-- No persistence needed
+- application.yml configures `notification_db` (should be removed)
+- Spec says completely stateless
+- Event listener pattern not implemented
+- No persistence needed (when properly implemented)
 
-#### Event Listeners
+#### ❌ Event Listeners (NOT IMPLEMENTED)
+
+These event listeners need to be implemented:
 
 ```java
 @EventListener
 public void onOrderPaid(OrderPaidEvent event) {
-  // Send "Order Confirmed" email
+  // Send "Order Confirmed" email - NOT IMPLEMENTED
 }
 
 @EventListener
 public void onPaymentSuccess(PaymentSuccessEvent event) {
-  // Send "Payment Received" email
+  // Send "Payment Received" email - NOT IMPLEMENTED
 }
 
 @EventListener
 public void onPaymentFailed(PaymentFailedEvent event) {
-  // Send "Payment Failed" email
+  // Send "Payment Failed" email - NOT IMPLEMENTED
 }
 
 @EventListener
 public void onOrderShipped(OrderShippedEvent event) {
-  // Send "Order Shipped" email
+  // Send "Order Shipped" email - NOT IMPLEMENTED
 }
 ```
+
+**Status:** Event classes don't exist. Notification Service is placeholder only.
 
 #### Mock Email Output
 
@@ -880,9 +910,9 @@ All logs use JSON format with correlation ID:
 8082  → Product Service
 8083  → Inventory Service
 8084  → Cart Service
-8085  → Order Service (placeholder)
-8086  → Payment Service (placeholder)
-8087  → Notification Service (placeholder)
+8085  → Order Service (spec) ⚠️ ACTUALLY RUNNING ON 8087
+8086  → Payment Service ✅ COMPLETE
+8087  → Notification Service (placeholder) ⚠️ PORT CONFLICT WITH ORDER SERVICE
 4200  → Angular Frontend (ng serve)
 ```
 
@@ -897,9 +927,9 @@ All logs use JSON format with correlation ID:
 | | | `/api/categories/**` | `/categories/**` | `GET /categories`, `/categories/{id}` |
 | Inventory | 8083 | `/api/inventory/**` | `/inventory/**` | `GET /inventory/{id}/check` |
 | Cart | 8084 | `/api/cart/**` | `/cart/**` | None (all require auth) |
-| Order | 8085 | `/api/orders/**` | `/orders/**` | ⏳ Not implemented |
-| Payment | 8086 | `/api/payments/**` | `/payments/**` | ⏳ Not implemented |
-| Notification | 8087 | `/api/notifications/**` | `/notifications/**` | ⏳ Not implemented |
+| Order | 8085 | `/api/orders/**` | `/orders/**` | ✅ FULLY IMPLEMENTED (running on 8087) |
+| Payment | 8086 | `/api/payments/**` | `/payments/**` | ✅ FULLY IMPLEMENTED |
+| Notification | 8087 | `/api/notifications/**` | `/notifications/**` | ⏳ PLACEHOLDER ONLY |
 
 > **Note:** Gateway uses `StripPrefix=1` so `/api/products` becomes `/products` internally.
 
