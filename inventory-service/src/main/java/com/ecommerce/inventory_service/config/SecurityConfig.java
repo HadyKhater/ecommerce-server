@@ -29,7 +29,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/inventory/{productId}/check").hasAnyRole("USER", "ADMIN")
                 .requestMatchers(HttpMethod.GET, "/inventory/{productId}").hasAnyRole("USER", "ADMIN")
-                .requestMatchers(HttpMethod.GET, "/inventory").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.GET, "/inventory").hasAnyRole("USER", "ADMIN")
                 .requestMatchers(HttpMethod.GET, "/inventory/low-stock").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/inventory/{productId}/history").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/inventory/restock").hasRole("ADMIN")

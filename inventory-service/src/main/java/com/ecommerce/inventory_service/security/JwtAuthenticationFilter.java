@@ -45,29 +45,40 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String userIdHeader = request.getHeader("X-User-Id");
         String userRolesHeader = request.getHeader("X-User-Roles");
 
-        if (userIdHeader != null && !userIdHeader.isEmpty()) {
-            List<GrantedAuthority> authorities = new ArrayList<>();
+        List<GrantedAuthority> authorities = new ArrayList<>();
 
-            if (userRolesHeader != null && !userRolesHeader.isEmpty()) {
-                for (String role : userRolesHeader.split(",")) {
-                    String trimmedRole = role.trim();
-                    if (!trimmedRole.isEmpty()) {
-                        String roleName = trimmedRole.startsWith("ROLE_") ? trimmedRole : "ROLE_" + trimmedRole;
-                        authorities.add(new SimpleGrantedAuthority(roleName));
-                    }
+        if (userRolesHeader != null && !userRolesHeader.isEmpty()) {
+            for (String role : userRolesHeader.split(",")) {
+                String trimmedRole = role.trim();
+                if (!trimmedRole.isEmpty()) {
+                    String roleName = trimmedRole.startsWith("ROLE_") ? trimmedRole : "ROLE_" + trimmedRole;
+                    authorities.add(new SimpleGrantedAuthority(roleName));
                 }
             }
-
-            UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                            UUID.fromString(userIdHeader),
-                            null,
-                            authorities
-                    );
-
-            SecurityContextHolder.getContext().setAuthentication(authentication);
-            log.debug("Authenticated user: {}, roles: {}", userIdHeader, userRolesHeader);
         }
+
+        Object principal = null;
+        if (userIdHeader != null && !userIdHeader.isEmpty()) {
+            try {
+                principal = UUID.fromString(userIdHeader);
+                log.debug("Authenticated user: {}, roles: {}", userIdHeader, userRolesHeader);
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid user ID format: {}", userIdHeader);
+            }
+        } else {
+            log.warn("X-User-Id header is missing for request: {}", request.getRequestURI());
+        }
+
+        // Always set authentication when gateway secret is valid
+        // This prevents 500 errors when @PreAuthorize is evaluated with null authentication
+        UsernamePasswordAuthenticationToken authentication =
+                new UsernamePasswordAuthenticationToken(
+                        principal,
+                        null,
+                        authorities
+                );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
 
         filterChain.doFilter(request, response);
     }

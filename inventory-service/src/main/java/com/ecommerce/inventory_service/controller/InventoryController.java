@@ -25,7 +25,7 @@ public class InventoryController {
     private final IInventoryService inventoryService;
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<List<InventoryResponse>> getAllInventory() {
         log.debug("GET /inventory - Getting all inventory (admin only)");
 

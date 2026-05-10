@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.Date;
+import java.util.List;
 import java.util.UUID;
 
 @Slf4j
@@ -110,11 +111,16 @@ public class TokenProvider {
         Instant now = Instant.now();
         Instant expiry = now.plus(accessTokenExpiration, ChronoUnit.SECONDS);
 
+        // Convert roles enum to list of strings for proper JWT serialization
+        List<String> roleStrings = user.getRoles().stream()
+                .map(Enum::name)
+                .collect(java.util.stream.Collectors.toList());
+
         return Jwts.builder()
                 .setSubject(user.getId().toString())
                 .claim(USER_ID_CLAIM, user.getId().toString())
                 .claim(EMAIL_CLAIM, user.getEmail())
-                .claim(ROLES_CLAIM, user.getRoles())
+                .claim(ROLES_CLAIM, roleStrings)
                 .setIssuedAt(Date.from(now))
                 .setExpiration(Date.from(expiry))
                 .signWith(privateKey, SignatureAlgorithm.RS256)
@@ -125,11 +131,16 @@ public class TokenProvider {
         Instant now = Instant.now();
         Instant expiry = now.plus(refreshTokenExpiration, ChronoUnit.SECONDS);
 
+        // Convert roles enum to list of strings for proper JWT serialization
+        List<String> roleStrings = user.getRoles().stream()
+                .map(Enum::name)
+                .collect(java.util.stream.Collectors.toList());
+
         return Jwts.builder()
                 .setSubject(user.getId().toString())
                 .claim(USER_ID_CLAIM, user.getId().toString())
                 .claim(EMAIL_CLAIM, user.getEmail())
-                .claim(ROLES_CLAIM, user.getRoles())
+                .claim(ROLES_CLAIM, roleStrings)
                 .claim("type", "refresh")
                 .setIssuedAt(Date.from(now))
                 .setExpiration(Date.from(expiry))

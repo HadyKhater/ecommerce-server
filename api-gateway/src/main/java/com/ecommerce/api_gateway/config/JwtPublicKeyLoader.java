@@ -63,6 +63,7 @@ public class JwtPublicKeyLoader implements ApplicationListener<ApplicationReadyE
                     PublicKey publicKey = decodePublicKey(publicKeyBase64);
                     jwtAuthenticationFilter.setPublicKey(publicKey);
                     log.info("Successfully loaded and configured JWT public key from auth-service");
+                    log.info("Public key loaded successfully, length: {}", publicKeyBase64.length());
                     return;
                 } else {
                     log.warn("Invalid response from auth-service: missing 'publicKey' field");
