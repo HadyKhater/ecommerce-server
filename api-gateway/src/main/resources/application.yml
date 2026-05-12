@@ -16,6 +16,22 @@ spring:
           filters:
             - StripPrefix=1
 
+        # Product Service Promotions
+        - id: product-service-promotions
+          uri: lb://product-service
+          predicates:
+            - Path=/api/promotions/**
+          filters:
+            - StripPrefix=1
+
+        # Product Service Banners
+        - id: product-service-banners
+          uri: lb://product-service
+          predicates:
+            - Path=/api/banners/**
+          filters:
+            - StripPrefix=1
+
         # Product Service
         - id: product-service
           uri: lb://product-service
@@ -91,6 +107,7 @@ jwt:
     - /api/auth/register
     - /api/auth/refresh
     - /api/auth/logout
+    - /api/banners/public
 
 gateway:
   internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
