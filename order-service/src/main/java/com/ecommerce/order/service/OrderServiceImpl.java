@@ -15,6 +15,11 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -29,6 +34,13 @@ public class OrderServiceImpl implements OrderService {
     private final OrderRepository orderRepository;
     private final ProductClient productClient;
     private final InventoryClient inventoryClient;
+    private final RestTemplate restTemplate;
+
+    @Value("${product.service.url}")
+    private String productServiceUrl;
+
+    @Value("${gateway.internal-secret}")
+    private String internalSecret;
 
     @Override
     @Transactional
@@ -73,10 +85,47 @@ public class OrderServiceImpl implements OrderService {
             order.addItem(orderItem);
         }
 
-        order.setTotalAmount(totalAmount);
+        BigDecimal discountAmount = request.getDiscountAmount() != null ? request.getDiscountAmount() : BigDecimal.ZERO;
+        if (discountAmount.compareTo(BigDecimal.ZERO) < 0) {
+            log.error("Invalid discount amount: {}", discountAmount);
+            throw new IllegalArgumentException("Discount amount cannot be negative");
+        }
+        
+        BigDecimal finalAmount = totalAmount.subtract(discountAmount);
+        if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            finalAmount = BigDecimal.ZERO;
+        }
+
+        order.setTotalAmount(finalAmount);
         Order savedOrder = orderRepository.save(order);
 
+        // Apply promotion if exists
+        if (request.getPromoCode() != null && !request.getPromoCode().isEmpty()) {
+            applyPromotion(request.getPromoCode(), userId, request.getUserEmail());
+        }
+
         return mapToResponse(savedOrder);
+    }
+
+    private void applyPromotion(String code, UUID userId, String userEmail) {
+        try {
+            log.info("Calling product-service to apply promo code: {}", code);
+            String url = productServiceUrl + "/promotions/apply";
+
+            ApplyPromoCodeRequest applyRequest = new ApplyPromoCodeRequest(code, userId, userEmail);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.set("X-Gateway-Secret", internalSecret);
+
+            HttpEntity<ApplyPromoCodeRequest> entity = new HttpEntity<>(applyRequest, headers);
+
+            restTemplate.postForEntity(url, entity, Void.class);
+            log.info("Successfully called product-service to apply promo code: {}", code);
+        } catch (Exception e) {
+            log.error("Failed to apply promo code {} for user {}: {}", code, userId, e.getMessage());
+            // Catch and LOG any errors silently (don't fail the order)
+        }
     }
 
     @Override

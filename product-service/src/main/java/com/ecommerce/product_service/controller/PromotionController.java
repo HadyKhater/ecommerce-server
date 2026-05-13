@@ -2,6 +2,7 @@ package com.ecommerce.product_service.controller;
 
 import com.ecommerce.product_service.dto.PromotionRequest;
 import com.ecommerce.product_service.dto.PromotionResponse;
+import com.ecommerce.product_service.dto.ApplyPromoCodeRequest;
 import com.ecommerce.product_service.dto.ValidatePromoCodeRequest;
 import com.ecommerce.product_service.dto.ValidatePromoCodeResponse;
 import com.ecommerce.product_service.service.IPromotionService;
@@ -26,9 +27,18 @@ public class PromotionController {
 
     @PostMapping("/validate")
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
-    public ResponseEntity<ValidatePromoCodeResponse> validatePromoCode(@Valid @RequestBody ValidatePromoCodeRequest request) {
+    public ResponseEntity<ValidatePromoCodeResponse> validatePromoCode(
+            @Valid @RequestBody ValidatePromoCodeRequest request) {
         log.debug("POST /promotions/validate - Validating code: {}", request.code());
         return ResponseEntity.ok(promotionService.validatePromoCode(request));
+    }
+
+    @PostMapping("/apply")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<Void> applyPromotion(@Valid @RequestBody ApplyPromoCodeRequest request) {
+        log.info("POST /promotions/apply - Applying promo code: {}", request.code());
+        promotionService.applyPromotion(request.code(), request.userId(), request.userEmail());
+        return ResponseEntity.ok().build();
     }
 
     @GetMapping("/active")

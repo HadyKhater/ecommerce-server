@@ -4,9 +4,11 @@ import com.ecommerce.product_service.client.InventoryClient;
 import com.ecommerce.product_service.dto.*;
 import com.ecommerce.product_service.entity.Category;
 import com.ecommerce.product_service.entity.Product;
+import com.ecommerce.product_service.entity.ProductImage;
 import com.ecommerce.product_service.exception.CategoryNotFoundException;
 import com.ecommerce.product_service.exception.ProductNotFoundException;
 import com.ecommerce.product_service.repository.CategoryRepository;
+import com.ecommerce.product_service.repository.ProductImageRepository;
 import com.ecommerce.product_service.repository.ProductRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +32,7 @@ public class ProductService implements IProductService {
 
     private final ProductRepository productRepository;
     private final CategoryRepository categoryRepository;
+    private final ProductImageRepository productImageRepository;
     private final InventoryClient inventoryClient;
 
     @Override
@@ -220,6 +223,128 @@ public class ProductService implements IProductService {
         log.info("Product soft deleted successfully: {} (deleted={})", saved.getId(), saved.isDeleted());
     }
 
+    @Override
+    public List<ProductImageResponse> getProductImages(UUID productId) {
+        log.debug("Fetching images for product: {}", productId);
+        return productImageRepository.findByProductIdOrderByDisplayOrderAsc(productId).stream()
+                .map(this::mapToImageResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"products", "product-search", "all-products"}, allEntries = true)
+    public ProductImageResponse addProductImage(UUID productId, ProductImageRequest request) {
+        log.info("Adding image to product: {}", productId);
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException(productId));
+
+        ProductImage image = ProductImage.builder()
+                .product(product)
+                .imageUrl(request.imageUrl())
+                .displayOrder(request.displayOrder())
+                .isPrimary(request.isPrimary())
+                .build();
+
+        if (image.isPrimary()) {
+            // Unset other primary images
+            productImageRepository.findByProductId(productId).forEach(img -> {
+                if (img.isPrimary()) {
+                    img.setPrimary(false);
+                    productImageRepository.save(img);
+                }
+            });
+        }
+
+        ProductImage saved = productImageRepository.save(image);
+        return mapToImageResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"products", "product-search", "all-products"}, allEntries = true)
+    public ProductImageResponse updateProductImage(UUID imageId, ProductImageRequest request) {
+        log.info("Updating product image: {}", imageId);
+        ProductImage image = productImageRepository.findById(imageId)
+                .orElseThrow(() -> new RuntimeException("Image not found: " + imageId));
+
+        image.setImageUrl(request.imageUrl());
+        image.setDisplayOrder(request.displayOrder());
+        
+        if (request.isPrimary() && !image.isPrimary()) {
+            // Set as primary, unset others
+            productImageRepository.findByProductId(image.getProduct().getId()).forEach(img -> {
+                if (img.isPrimary()) {
+                    img.setPrimary(false);
+                    productImageRepository.save(img);
+                }
+            });
+            image.setPrimary(true);
+        } else {
+            image.setPrimary(request.isPrimary());
+        }
+
+        ProductImage saved = productImageRepository.save(image);
+        return mapToImageResponse(saved);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"products", "product-search", "all-products"}, allEntries = true)
+    public void deleteProductImage(UUID imageId) {
+        log.info("Deleting product image: {}", imageId);
+        productImageRepository.deleteById(imageId);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"products", "product-search", "all-products"}, allEntries = true)
+    public List<ProductImageResponse> reorderProductImages(UUID productId, List<UUID> imageIds) {
+        log.info("Reordering images for product: {}", productId);
+        List<ProductImage> images = productImageRepository.findByProductId(productId);
+        
+        for (int i = 0; i < imageIds.size(); i++) {
+            UUID id = imageIds.get(i);
+            int order = i;
+            images.stream()
+                    .filter(img -> img.getId().equals(id))
+                    .findFirst()
+                    .ifPresent(img -> {
+                        img.setDisplayOrder(order);
+                        productImageRepository.save(img);
+                    });
+        }
+
+        return productImageRepository.findByProductIdOrderByDisplayOrderAsc(productId).stream()
+                .map(this::mapToImageResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"products", "product-search", "all-products"}, allEntries = true)
+    public ProductImageResponse setPrimaryImage(UUID productId, UUID imageId) {
+        log.info("Setting primary image: {} for product: {}", imageId, productId);
+        List<ProductImage> images = productImageRepository.findByProductId(productId);
+        
+        ProductImage primaryImage = null;
+        for (ProductImage img : images) {
+            if (img.getId().equals(imageId)) {
+                img.setPrimary(true);
+                primaryImage = img;
+            } else {
+                img.setPrimary(false);
+            }
+            productImageRepository.save(img);
+        }
+
+        if (primaryImage == null) {
+            throw new RuntimeException("Image not found: " + imageId);
+        }
+
+        return mapToImageResponse(primaryImage);
+    }
+
     private ProductDTO mapToDTO(Product product) {
         return new ProductDTO(
                 product.getId(),
@@ -229,6 +354,7 @@ public class ProductService implements IProductService {
                 product.getCategory().getId(),
                 product.getCategory().getName(),
                 splitImageUrls(product.getImageUrls()),
+                product.getImages().stream().map(this::mapToImageResponse).toList(),
                 product.getSku(),
                 product.getActive(),
                 product.getCreatedAt(),
@@ -246,5 +372,15 @@ public class ProductService implements IProductService {
     private List<String> splitImageUrls(String raw) {
         if (raw == null || raw.isBlank()) return List.of();
         return List.of(raw.split(","));
+    }
+
+    private ProductImageResponse mapToImageResponse(ProductImage image) {
+        return new ProductImageResponse(
+                image.getId(),
+                image.getImageUrl(),
+                image.getDisplayOrder(),
+                image.isPrimary(),
+                image.getCreatedAt()
+        );
     }
 }

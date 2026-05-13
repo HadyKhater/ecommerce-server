@@ -17,5 +17,5 @@ public interface IPromotionService {
     void deletePromotion(UUID id);
     PromotionResponse toggleActive(UUID id);
     ValidatePromoCodeResponse validatePromoCode(ValidatePromoCodeRequest request);
-    void applyPromotion(UUID promotionId);
+    void applyPromotion(String code, UUID userId, String userEmail);
 }

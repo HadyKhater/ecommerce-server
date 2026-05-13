@@ -215,7 +215,8 @@ public class CartService implements ICartService {
                         item.getUnitPrice(),
                         imageUrl,
                         item.getQuantity(),
-                        itemTotal
+                        itemTotal,
+                        product != null ? product.categoryId() : null
                 );
                 itemResponses.add(itemResponse);
             } catch (Exception e) {

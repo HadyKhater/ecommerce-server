@@ -40,8 +40,7 @@ public class ProductController {
                 keyword, categoryId, page, size);
 
         ProductSearchRequest request = new ProductSearchRequest(
-                keyword, categoryId, minPrice, maxPrice, page, size, null
-        );
+                keyword, categoryId, minPrice, maxPrice, page, size, null);
 
         PagedResponse<ProductDTO> response = productService.searchProducts(request);
         return ResponseEntity.ok(response);
@@ -62,8 +61,7 @@ public class ProductController {
                 keyword, categoryId, active, page, size);
 
         ProductSearchRequest request = new ProductSearchRequest(
-                keyword, categoryId, minPrice, maxPrice, page, size, active
-        );
+                keyword, categoryId, minPrice, maxPrice, page, size, active);
 
         PagedResponse<ProductDTO> response = productService.getAllProductsForAdmin(request);
         return ResponseEntity.ok(response);
@@ -91,7 +89,8 @@ public class ProductController {
     public ResponseEntity<Map<String, Object>> getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
 
-        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
+        if (authentication == null || !authentication.isAuthenticated()
+                || "anonymousUser".equals(authentication.getPrincipal())) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(Map.of("error", "No authenticated user found"));
         }
@@ -134,5 +133,61 @@ public class ProductController {
 
         productService.deleteProduct(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // --- Product Image Endpoints ---
+
+    @GetMapping("/{productId}/images")
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
+    public ResponseEntity<List<ProductImageResponse>> getProductImages(@PathVariable UUID productId) {
+        log.debug("GET /products/{}/images", productId);
+        return ResponseEntity.ok(productService.getProductImages(productId));
+    }
+
+    @PostMapping("/{productId}/images")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ProductImageResponse> addProductImage(
+            @PathVariable UUID productId,
+            @Valid @RequestBody ProductImageRequest request) {
+        log.info("POST /products/{}/images", productId);
+        return ResponseEntity.status(HttpStatus.CREATED).body(productService.addProductImage(productId, request));
+    }
+
+    @PutMapping("/{productId}/images/{imageId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ProductImageResponse> updateProductImage(
+            @PathVariable UUID productId,
+            @PathVariable UUID imageId,
+            @Valid @RequestBody ProductImageRequest request) {
+        log.info("PUT /products/{}/images/{}", productId, imageId);
+        return ResponseEntity.ok(productService.updateProductImage(imageId, request));
+    }
+
+    @DeleteMapping("/{productId}/images/{imageId}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<Void> deleteProductImage(
+            @PathVariable UUID productId,
+            @PathVariable UUID imageId) {
+        log.info("DELETE /products/{}/images/{}", productId, imageId);
+        productService.deleteProductImage(imageId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PatchMapping("/{productId}/images/{imageId}/primary")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ProductImageResponse> setPrimaryImage(
+            @PathVariable UUID productId,
+            @PathVariable UUID imageId) {
+        log.info("PATCH /products/{}/images/{}/primary", productId, imageId);
+        return ResponseEntity.ok(productService.setPrimaryImage(productId, imageId));
+    }
+
+    @PostMapping("/{productId}/images/reorder")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<ProductImageResponse>> reorderProductImages(
+            @PathVariable UUID productId,
+            @RequestBody List<UUID> imageIds) {
+        log.info("POST /products/{}/images/reorder", productId);
+        return ResponseEntity.ok(productService.reorderProductImages(productId, imageIds));
     }
 }

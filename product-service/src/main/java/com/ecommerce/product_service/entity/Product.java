@@ -42,6 +42,10 @@ public class Product {
     @Column(name = "image_urls", columnDefinition = "TEXT")
     private String imageUrls;
 
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    @OrderBy("displayOrder ASC")
+    private java.util.List<ProductImage> images = new java.util.ArrayList<>();
+
     @Column(nullable = false)
     private Instant createdAt;
 

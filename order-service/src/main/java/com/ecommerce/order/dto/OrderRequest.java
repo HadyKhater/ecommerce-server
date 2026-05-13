@@ -26,4 +26,8 @@ public class OrderRequest {
 
     @NotBlank(message = "Currency is required")
     private String currency;
+
+    private String promoCode;
+
+    private java.math.BigDecimal discountAmount;
 }

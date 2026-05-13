@@ -20,4 +20,16 @@ public interface IProductService {
     ProductDTO updateProduct(UUID id, UpdateProductRequest request);
 
     void deleteProduct(UUID id);
+
+    List<ProductImageResponse> getProductImages(UUID productId);
+
+    ProductImageResponse addProductImage(UUID productId, ProductImageRequest request);
+
+    ProductImageResponse updateProductImage(UUID imageId, ProductImageRequest request);
+
+    void deleteProductImage(UUID imageId);
+
+    List<ProductImageResponse> reorderProductImages(UUID productId, List<UUID> imageIds);
+
+    ProductImageResponse setPrimaryImage(UUID productId, UUID imageId);
 }

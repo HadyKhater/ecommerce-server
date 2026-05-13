@@ -7,6 +7,10 @@ import com.ecommerce.product_service.dto.ValidatePromoCodeResponse;
 import com.ecommerce.product_service.entity.DiscountType;
 import com.ecommerce.product_service.entity.Promotion;
 import com.ecommerce.product_service.repository.PromotionRepository;
+import com.ecommerce.product_service.entity.PromotionCategory;
+import com.ecommerce.product_service.entity.PromotionUsage;
+import com.ecommerce.product_service.repository.PromotionCategoryRepository;
+import com.ecommerce.product_service.repository.PromotionUsageRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -14,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,12 +29,14 @@ import java.util.stream.Collectors;
 public class PromotionService implements IPromotionService {
 
     private final PromotionRepository promotionRepository;
+    private final PromotionUsageRepository promotionUsageRepository;
+    private final PromotionCategoryRepository promotionCategoryRepository;
 
     @Override
     @Transactional(readOnly = true)
     public List<PromotionResponse> getAllPromotions() {
         return promotionRepository.findAllByOrderByCreatedAtDesc().stream()
-                .map(this::mapToResponse)
+                .map(p -> mapToResponse(p, null))
                 .collect(Collectors.toList());
     }
 
@@ -38,7 +45,7 @@ public class PromotionService implements IPromotionService {
     public List<PromotionResponse> getActivePromotions() {
         LocalDateTime now = LocalDateTime.now();
         return promotionRepository.findByActiveTrueAndStartDateBeforeAndEndDateAfter(now, now).stream()
-                .map(this::mapToResponse)
+                .map(p -> mapToResponse(p, null))
                 .collect(Collectors.toList());
     }
 
@@ -46,7 +53,7 @@ public class PromotionService implements IPromotionService {
     @Transactional(readOnly = true)
     public PromotionResponse getPromotionById(UUID id) {
         return promotionRepository.findById(id)
-                .map(this::mapToResponse)
+                .map(p -> mapToResponse(p, null))
                 .orElseThrow(() -> new RuntimeException("Promotion not found with id: " + id));
     }
 
@@ -55,7 +62,20 @@ public class PromotionService implements IPromotionService {
     public PromotionResponse createPromotion(PromotionRequest request) {
         Promotion promotion = new Promotion();
         updatePromotionFields(promotion, request);
-        return mapToResponse(promotionRepository.save(promotion));
+        Promotion savedPromotion = promotionRepository.save(promotion);
+
+        if (!request.applicableToAll() && request.categoryIds() != null && !request.categoryIds().isEmpty()) {
+            request.categoryIds().forEach(categoryId -> {
+                PromotionCategory pc = new PromotionCategory();
+                pc.setPromotion(savedPromotion);
+                pc.setCategoryId(categoryId);
+                // Note: In a real app, we might fetch the category name from a CategoryService
+                pc.setCategoryName("Category " + categoryId); 
+                promotionCategoryRepository.save(pc);
+            });
+        }
+
+        return mapToResponse(savedPromotion, null);
     }
 
     @Override
@@ -64,7 +84,20 @@ public class PromotionService implements IPromotionService {
         Promotion promotion = promotionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Promotion not found with id: " + id));
         updatePromotionFields(promotion, request);
-        return mapToResponse(promotionRepository.save(promotion));
+        
+        promotionCategoryRepository.deleteByPromotionId(id);
+        if (!request.applicableToAll() && request.categoryIds() != null && !request.categoryIds().isEmpty()) {
+            request.categoryIds().forEach(categoryId -> {
+                PromotionCategory pc = new PromotionCategory();
+                pc.setPromotion(promotion);
+                pc.setCategoryId(categoryId);
+                pc.setCategoryName("Category " + categoryId);
+                promotionCategoryRepository.save(pc);
+            });
+        }
+
+        Promotion savedPromotion = promotionRepository.save(promotion);
+        return mapToResponse(savedPromotion, null);
     }
 
     @Override
@@ -79,7 +112,7 @@ public class PromotionService implements IPromotionService {
         Promotion promotion = promotionRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Promotion not found with id: " + id));
         promotion.setActive(!promotion.isActive());
-        return mapToResponse(promotionRepository.save(promotion));
+        return mapToResponse(promotionRepository.save(promotion), null);
     }
 
     @Override
@@ -105,6 +138,31 @@ public class PromotionService implements IPromotionService {
             return new ValidatePromoCodeResponse(false, "Promo code usage limit exceeded.", BigDecimal.ZERO, null);
         }
 
+        // Per-user limit check
+        if (promotion.getPerUserLimit() != null && request.userId() != null) {
+            long userUsageCount = promotionUsageRepository.countByPromotionIdAndUserId(promotion.getId(), request.userId());
+            if (userUsageCount >= promotion.getPerUserLimit()) {
+                return new ValidatePromoCodeResponse(false, "You have already used this promo code", BigDecimal.ZERO, null);
+            }
+        }
+
+        // Category restriction check
+        if (!promotion.isApplicableToAll()) {
+            List<UUID> applicableCategoryIds = promotion.getApplicableCategories().stream()
+                    .map(PromotionCategory::getCategoryId)
+                    .toList();
+            
+            boolean hasMatch = false;
+            if (request.cartCategoryIds() != null) {
+                hasMatch = request.cartCategoryIds().stream()
+                        .anyMatch(applicableCategoryIds::contains);
+            }
+
+            if (!hasMatch) {
+                return new ValidatePromoCodeResponse(false, "This promo is not valid for items in your cart", BigDecimal.ZERO, null);
+            }
+        }
+
         if (promotion.getMinimumOrderAmount() != null && request.orderAmount().compareTo(promotion.getMinimumOrderAmount()) < 0) {
             return new ValidatePromoCodeResponse(false, "Minimum order amount not met.", BigDecimal.ZERO, null);
         }
@@ -116,20 +174,31 @@ public class PromotionService implements IPromotionService {
             discountAmount = request.orderAmount().multiply(promotion.getDiscountValue()).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
         }
 
-        // Ensure discount doesn't exceed order amount
         if (discountAmount.compareTo(request.orderAmount()) > 0) {
             discountAmount = request.orderAmount();
         }
 
-        return new ValidatePromoCodeResponse(true, "Promo code applied successfully.", discountAmount, mapToResponse(promotion));
+        return new ValidatePromoCodeResponse(true, "Promo code applied successfully.", discountAmount, mapToResponse(promotion, request.userId()));
     }
 
     @Override
     @Transactional
-    public void applyPromotion(UUID promotionId) {
-        Promotion promotion = promotionRepository.findById(promotionId)
-                .orElseThrow(() -> new RuntimeException("Promotion not found with id: " + promotionId));
+    public void applyPromotion(String code, UUID userId, String userEmail) {
+        Promotion promotion = promotionRepository.findByCode(code)
+                .orElseThrow(() -> new RuntimeException("Promotion not found with code: " + code));
+        
         promotion.setUsageCount(promotion.getUsageCount() + 1);
+        
+        if (promotion.getUsageLimit() != null && promotion.getUsageCount() >= promotion.getUsageLimit()) {
+            promotion.setActive(false);
+        }
+
+        PromotionUsage usage = new PromotionUsage();
+        usage.setPromotion(promotion);
+        usage.setUserId(userId);
+        usage.setUserEmail(userEmail);
+        promotionUsageRepository.save(usage);
+        
         promotionRepository.save(promotion);
     }
 
@@ -144,10 +213,24 @@ public class PromotionService implements IPromotionService {
         promotion.setEndDate(request.endDate());
         promotion.setActive(request.active());
         promotion.setUsageLimit(request.usageLimit());
+        promotion.setPerUserLimit(request.perUserLimit());
         promotion.setApplicableToAll(request.applicableToAll());
     }
 
-    private PromotionResponse mapToResponse(Promotion promotion) {
+    private PromotionResponse mapToResponse(Promotion promotion, UUID userId) {
+        List<UUID> categoryIds = promotion.getApplicableCategories().stream()
+                .map(PromotionCategory::getCategoryId)
+                .toList();
+        
+        List<String> categoryNames = promotion.getApplicableCategories().stream()
+                .map(PromotionCategory::getCategoryName)
+                .toList();
+
+        long userUsageCount = 0;
+        if (userId != null) {
+            userUsageCount = promotionUsageRepository.countByPromotionIdAndUserId(promotion.getId(), userId);
+        }
+
         return new PromotionResponse(
                 promotion.getId(),
                 promotion.getName(),
@@ -161,7 +244,11 @@ public class PromotionService implements IPromotionService {
                 promotion.isActive(),
                 promotion.getUsageLimit(),
                 promotion.getUsageCount(),
+                promotion.getPerUserLimit(),
+                userUsageCount,
                 promotion.isApplicableToAll(),
+                categoryIds,
+                categoryNames,
                 promotion.getCreatedAt(),
                 promotion.getUpdatedAt()
         );

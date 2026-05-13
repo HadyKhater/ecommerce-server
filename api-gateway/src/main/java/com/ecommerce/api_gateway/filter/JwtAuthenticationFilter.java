@@ -38,10 +38,9 @@ public class JwtAuthenticationFilter implements GlobalFilter {
     private static final String GATEWAY_SECRET_HEADER = "X-Gateway-Secret";
 
     private static final List<String> PUBLIC_PATHS = List.of(
-        "/api/auth/login",
-        "/api/auth/register",
-        "/api/auth/refresh"
-    );
+            "/api/auth/login",
+            "/api/auth/register",
+            "/api/auth/refresh");
 
     @Value("${jwt.public-key:#{null}}")
     private String publicKeyBase64;
@@ -172,9 +171,8 @@ public class JwtAuthenticationFilter implements GlobalFilter {
 
         // RFC 7807 Problem Detail
         String problemDetail = String.format(
-            "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"%s\"}",
-            detail.replace("\"", "\\\"")
-        );
+                "{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"%s\"}",
+                detail.replace("\"", "\\\""));
 
         DataBuffer buffer = response.bufferFactory().wrap(problemDetail.getBytes(StandardCharsets.UTF_8));
         return response.writeWith(Mono.just(buffer));

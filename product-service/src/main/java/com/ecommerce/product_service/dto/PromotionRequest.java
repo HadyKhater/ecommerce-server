@@ -6,6 +6,8 @@ import jakarta.validation.constraints.NotNull;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
+import java.util.UUID;
 
 public record PromotionRequest(
         @NotBlank(message = "Name is required")
@@ -23,5 +25,7 @@ public record PromotionRequest(
         LocalDateTime endDate,
         boolean active,
         Integer usageLimit,
-        boolean applicableToAll
+        Integer perUserLimit,
+        boolean applicableToAll,
+        List<UUID> categoryIds
 ) {}

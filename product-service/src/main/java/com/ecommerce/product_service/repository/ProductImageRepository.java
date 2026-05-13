@@ -1,0 +1,18 @@
+package com.ecommerce.product_service.repository;
+
+import com.ecommerce.product_service.entity.ProductImage;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.UUID;
+
+@Repository
+public interface ProductImageRepository extends JpaRepository<ProductImage, UUID> {
+    
+    List<ProductImage> findByProductId(UUID productId);
+    
+    List<ProductImage> findByProductIdOrderByDisplayOrderAsc(UUID productId);
+    
+    void deleteByProductId(UUID productId);
+}

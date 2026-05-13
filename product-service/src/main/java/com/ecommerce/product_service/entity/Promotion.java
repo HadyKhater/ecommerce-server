@@ -7,6 +7,8 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -50,11 +52,16 @@ public class Promotion {
 
     private Integer usageLimit;
 
+    private Integer perUserLimit;
+
     @Column(nullable = false)
     private int usageCount = 0;
 
     @Column(nullable = false)
     private boolean applicableToAll = true;
+
+    @OneToMany(mappedBy = "promotion", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    private List<PromotionCategory> applicableCategories = new ArrayList<>();
 
     @Column(updatable = false)
     private LocalDateTime createdAt;

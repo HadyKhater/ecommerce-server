@@ -25,7 +25,6 @@ public class InventoryController {
     private final IInventoryService inventoryService;
 
     @GetMapping
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<List<InventoryResponse>> getAllInventory() {
         log.debug("GET /inventory - Getting all inventory (admin only)");
 
@@ -34,7 +33,6 @@ public class InventoryController {
     }
 
     @GetMapping("/{productId}")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<InventoryResponse> getInventoryByProductId(
             @PathVariable UUID productId) {
         log.debug("GET /inventory/{} - Getting inventory for product", productId);
@@ -53,7 +51,6 @@ public class InventoryController {
     }
 
     @GetMapping("/out-of-stock/count")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<Map<String, Long>> getOutOfStockCount() {
         log.debug("GET /inventory/out-of-stock/count - Getting out of stock count");
         long count = inventoryService.getOutOfStockCount();
@@ -71,7 +68,6 @@ public class InventoryController {
     }
 
     @GetMapping("/{productId}/check")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<Map<String, Object>> checkStockAvailability(
             @PathVariable UUID productId,
             @RequestParam int quantity) {

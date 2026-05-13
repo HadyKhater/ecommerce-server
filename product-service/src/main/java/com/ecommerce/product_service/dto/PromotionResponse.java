@@ -4,6 +4,7 @@ import com.ecommerce.product_service.entity.DiscountType;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 public record PromotionResponse(
@@ -19,7 +20,11 @@ public record PromotionResponse(
         boolean active,
         Integer usageLimit,
         int usageCount,
+        Integer perUserLimit,
+        long userUsageCount,
         boolean applicableToAll,
+        List<UUID> categoryIds,
+        List<String> categoryNames,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {}

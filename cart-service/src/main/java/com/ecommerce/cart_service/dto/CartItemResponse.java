@@ -14,7 +14,8 @@ public record CartItemResponse(
         BigDecimal unitPrice,
         String imageUrl,
         Integer quantity,
-        BigDecimal totalPrice
+        BigDecimal totalPrice,
+        UUID categoryId
 ) implements Serializable {
 
     private static final long serialVersionUID = 1L;

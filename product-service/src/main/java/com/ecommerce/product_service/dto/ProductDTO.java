@@ -14,6 +14,7 @@ public record ProductDTO(
         UUID categoryId,
         String categoryName,
         List<String> imageUrls,
+        List<ProductImageResponse> images,
         String sku,
         Boolean active,
         Instant createdAt,
