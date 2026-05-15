@@ -106,7 +106,6 @@ jwt:
     - /api/auth/login
     - /api/auth/register
     - /api/auth/refresh
-    - /api/auth/logout
     - /api/banners/public
 
 gateway:

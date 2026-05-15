@@ -27,9 +27,11 @@ public class SecurityConfig {
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers(HttpMethod.GET, "/inventory/{productId}/check").permitAll()
-                .requestMatchers(HttpMethod.GET, "/inventory/{productId}").permitAll()
-                .requestMatchers(HttpMethod.GET, "/inventory").permitAll()
+                .requestMatchers("/actuator/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/health").permitAll()
+                .requestMatchers(HttpMethod.GET, "/inventory/{productId}/check").hasAnyRole("USER", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/inventory/{productId}").hasAnyRole("USER", "ADMIN")
+                .requestMatchers(HttpMethod.GET, "/inventory").hasAnyRole("USER", "ADMIN")
                 .requestMatchers(HttpMethod.GET, "/inventory/low-stock").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/inventory/{productId}/history").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/inventory/restock").hasRole("ADMIN")
@@ -37,7 +39,6 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/inventory/reserve").hasAnyRole("USER", "ADMIN")
                 .requestMatchers(HttpMethod.POST, "/inventory/release").hasAnyRole("USER", "ADMIN")
                 .requestMatchers(HttpMethod.POST, "/inventory/initialize/**").hasRole("ADMIN")
-                .requestMatchers("/actuator/**").permitAll()
                 .anyRequest().authenticated()
             )
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
