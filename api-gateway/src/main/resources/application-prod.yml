@@ -1,0 +1,29 @@
+# Production Profile Configuration
+# This profile is activated when running with -Dspring.profiles.active=prod
+# or when SPRING_PROFILES_ACTIVE=prod environment variable is set
+#
+# Production settings enforce stricter rate limiting for security and stability
+
+gateway:
+  rate-limit:
+    # Rate limiting is always enabled in production
+    enabled: true
+    
+    # Conservative limits for production security
+    # 100 requests per minute per IP address
+    max-requests: 100
+    window-seconds: 60
+
+# Production logging - minimal and focused
+logging:
+  level:
+    root: WARN
+    com.ecommerce.api_gateway: INFO
+    com.netflix.eureka: OFF
+    com.netflix.discovery: OFF
+    org.springframework.cloud.gateway: WARN
+
+# Production server settings
+server:
+  # Disable graceful shutdown in production for immediate termination
+  shutdown: immediate

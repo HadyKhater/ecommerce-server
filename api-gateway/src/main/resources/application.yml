@@ -110,6 +110,13 @@ jwt:
 
 gateway:
   internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
+  rate-limit:
+    # Rate limiting configuration
+    # Default: 100 requests per minute per IP (production safe)
+    # Override in application-dev.yml for development
+    enabled: true
+    max-requests: 100
+    window-seconds: 60
 
 eureka:
   client:

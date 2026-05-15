@@ -1,6 +1,7 @@
 package com.ecommerce.api_gateway.filter;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.gateway.filter.GlobalFilter;
 import org.springframework.cloud.gateway.filter.GatewayFilterChain;
 import org.springframework.core.Ordered;
@@ -27,8 +28,15 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class RateLimitingFilter implements GlobalFilter {
 
-    private static final int MAX_REQUESTS_PER_MINUTE = 100;
-    private static final Duration WINDOW_SIZE = Duration.ofMinutes(1);
+    @Value("${gateway.rate-limit.max-requests:100}")
+    private int maxRequestsPerMinute;
+
+    @Value("${gateway.rate-limit.window-seconds:60}")
+    private int windowSeconds;
+
+    @Value("${gateway.rate-limit.enabled:true}")
+    private boolean rateLimitEnabled;
+
     private static final String RATE_LIMIT_REMAINING_HEADER = "X-RateLimit-Remaining";
     private static final String RATE_LIMIT_RESET_HEADER = "X-RateLimit-Reset";
 
@@ -36,11 +44,18 @@ public class RateLimitingFilter implements GlobalFilter {
 
     @Override
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        // Skip rate limiting if disabled (e.g., for development)
+        if (!rateLimitEnabled) {
+            return chain.filter(exchange);
+        }
+
         ServerHttpRequest request = exchange.getRequest();
         ServerHttpResponse response = exchange.getResponse();
 
         String clientIp = getClientIp(request);
         RateLimitEntry entry = requestCounts.computeIfAbsent(clientIp, k -> new RateLimitEntry());
+
+        Duration windowSize = Duration.ofSeconds(windowSeconds);
 
         synchronized (entry) {
             Instant now = Instant.now();
@@ -48,19 +63,19 @@ public class RateLimitingFilter implements GlobalFilter {
             // Reset if window has passed
             if (now.isAfter(entry.windowEnd)) {
                 entry.count.set(0);
-                entry.windowEnd = now.plus(WINDOW_SIZE);
+                entry.windowEnd = now.plus(windowSize);
             }
 
             int currentCount = entry.count.incrementAndGet();
-            int remaining = Math.max(0, MAX_REQUESTS_PER_MINUTE - currentCount);
+            int remaining = Math.max(0, maxRequestsPerMinute - currentCount);
             long resetSeconds = Duration.between(now, entry.windowEnd).getSeconds();
 
             // Add rate limit headers to response
             response.getHeaders().add(RATE_LIMIT_REMAINING_HEADER, String.valueOf(remaining));
             response.getHeaders().add(RATE_LIMIT_RESET_HEADER, String.valueOf(resetSeconds));
 
-            if (currentCount > MAX_REQUESTS_PER_MINUTE) {
-                log.warn("Rate limit exceeded for IP: {} (count: {})", clientIp, currentCount);
+            if (currentCount > maxRequestsPerMinute) {
+                log.warn("Rate limit exceeded for IP: {} (count: {}, limit: {})", clientIp, currentCount, maxRequestsPerMinute);
                 return tooManyRequests(response, resetSeconds);
             }
         }
@@ -110,6 +125,6 @@ public class RateLimitingFilter implements GlobalFilter {
 
     private static class RateLimitEntry {
         final AtomicInteger count = new AtomicInteger(0);
-        volatile Instant windowEnd = Instant.now().plus(WINDOW_SIZE);
+        volatile Instant windowEnd = Instant.now();
     }
 }

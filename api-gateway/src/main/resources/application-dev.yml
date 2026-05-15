@@ -1,0 +1,31 @@
+# Development Profile Configuration
+# This profile is automatically activated when running with -Dspring.profiles.active=dev
+# or when SPRING_PROFILES_ACTIVE=dev environment variable is set
+#
+# For development, we significantly increase rate limits to prevent 429 errors
+# during testing and development workflows that may involve frequent page refreshes
+
+gateway:
+  rate-limit:
+    # Completely disable rate limiting for development
+    # Set to false to disable, true to enable with the limits below
+    enabled: false
+    
+    # If you need rate limiting enabled in dev, use these high limits:
+    # enabled: true
+    # max-requests: 10000
+    # window-seconds: 60
+
+# Logging adjustments for development
+logging:
+  level:
+    root: INFO
+    com.ecommerce.api_gateway: DEBUG
+    com.netflix.eureka: OFF
+    com.netflix.discovery: OFF
+    org.springframework.cloud.gateway: INFO
+
+# Server configuration for development
+server:
+  # Enable graceful shutdown for smoother development restarts
+  shutdown: graceful
