@@ -31,7 +31,7 @@ spring:
     validate-on-migrate: false
 
 server:
-  port: 8086
+  port: 8085
 
 eureka:
   client:

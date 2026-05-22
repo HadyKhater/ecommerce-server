@@ -1,7 +1,9 @@
 package com.ecommerce.order.scheduler;
 
 import com.ecommerce.order.client.InventoryClient;
+import com.ecommerce.order.client.NotificationClient;
 import com.ecommerce.order.dto.ReserveStockRequest;
+import com.ecommerce.order.dto.SendNotificationRequest;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderStatus;
 import com.ecommerce.order.repository.OrderRepository;
@@ -21,6 +23,7 @@ public class OrderExpirationScheduler {
 
     private final OrderRepository orderRepository;
     private final InventoryClient inventoryClient;
+    private final NotificationClient notificationClient;
 
     /**
      * Runs every 10 minutes to check for expired reservations.
@@ -68,6 +71,20 @@ public class OrderExpirationScheduler {
         } else {
             log.error("Expired order {} but failed to release stock for some items. Order status updated to EXPIRED.", 
                      order.getId());
+        }
+
+        // Notify user about expired reservation
+        try {
+            log.info("Sending reservation expired notification for order {} to user {}", order.getId(), order.getUserId());
+            notificationClient.sendNotification(new SendNotificationRequest(
+                    order.getUserId(),
+                    "Order Reservation Expired",
+                    "Your order reservation has expired",
+                    "ORDER"
+            ));
+        } catch (Exception e) {
+            log.error("Failed to send reservation expired notification for order {} (non-critical): {}", 
+                     order.getId(), e.getMessage());
         }
     }
     

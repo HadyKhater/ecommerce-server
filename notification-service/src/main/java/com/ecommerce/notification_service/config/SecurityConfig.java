@@ -27,6 +27,10 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/health").permitAll()
+                .requestMatchers("/ws/**").permitAll()
+                .requestMatchers("/notifications/send").permitAll()
+                .requestMatchers("/notifications/user/**").authenticated()
+                .requestMatchers("/notifications/*/read").authenticated()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exceptions -> exceptions

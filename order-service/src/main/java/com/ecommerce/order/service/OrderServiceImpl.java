@@ -2,6 +2,7 @@ package com.ecommerce.order.service;
 
 import com.ecommerce.order.client.InventoryClient;
 import com.ecommerce.order.client.ProductClient;
+import com.ecommerce.order.client.NotificationClient;
 import com.ecommerce.order.dto.*;
 import com.ecommerce.order.entity.Order;
 import com.ecommerce.order.entity.OrderItem;
@@ -35,6 +36,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductClient productClient;
     private final InventoryClient inventoryClient;
     private final RestTemplate restTemplate;
+    private final NotificationClient notificationClient;
 
     @Value("${product.service.url}")
     private String productServiceUrl;
@@ -217,6 +219,11 @@ public class OrderServiceImpl implements OrderService {
         Order savedOrder = orderRepository.save(order);
 
         log.info("Order reservation created: {} with status RESERVED, awaiting payment confirmation", savedOrder.getId());
+        
+        // Send order status notification (wrapped in try-catch internally)
+        sendNotificationSafe(savedOrder.getUserId(), "Order Awaiting Payment", 
+                "Your order has been placed and is awaiting payment", "ORDER");
+
         return mapToResponse(savedOrder);
     }
 
@@ -232,12 +239,17 @@ public class OrderServiceImpl implements OrderService {
         }
 
         order.setStatus(OrderStatus.CONFIRMED);
+        Order savedOrder = orderRepository.save(order);
         
         if (order.getPromoCode() != null && !order.getPromoCode().isBlank()) {
             applyPromotion(order.getPromoCode(), order.getUserId(), order.getUserEmail());
         }
         
-        return mapToResponse(orderRepository.save(order));
+        // Send order status notification
+        sendNotificationSafe(savedOrder.getUserId(), "Order Confirmed", 
+                "Your order has been confirmed and is being processed", "ORDER");
+        
+        return mapToResponse(savedOrder);
     }
 
     @Override
@@ -253,8 +265,13 @@ public class OrderServiceImpl implements OrderService {
 
         order.setStatus(OrderStatus.CANCELLED);
         releaseOrderStock(order);
+        Order savedOrder = orderRepository.save(order);
         
-        return mapToResponse(orderRepository.save(order));
+        // Send order status notification
+        sendNotificationSafe(savedOrder.getUserId(), "Order Cancelled", 
+                "Your order has been cancelled", "ORDER");
+        
+        return mapToResponse(savedOrder);
     }
 
     private void applyPromotion(String code, UUID userId, String userEmail) {
@@ -301,13 +318,25 @@ public class OrderServiceImpl implements OrderService {
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
 
+        OrderStatus oldStatus = order.getStatus();
         if ("COMPLETED".equalsIgnoreCase(status)) {
             order.setStatus(OrderStatus.CONFIRMED);
         } else if ("FAILED".equalsIgnoreCase(status)) {
             order.setStatus(OrderStatus.CANCELLED);
             releaseOrderStock(order);
         }
-        orderRepository.save(order);
+        Order savedOrder = orderRepository.save(order);
+
+        // Notify if status changed
+        if (savedOrder.getStatus() != oldStatus) {
+            if (savedOrder.getStatus() == OrderStatus.CONFIRMED) {
+                sendNotificationSafe(savedOrder.getUserId(), "Order Confirmed", 
+                        "Your order has been confirmed and is being processed", "ORDER");
+            } else if (savedOrder.getStatus() == OrderStatus.CANCELLED) {
+                sendNotificationSafe(savedOrder.getUserId(), "Order Cancelled", 
+                        "Your order has been cancelled", "ORDER");
+            }
+        }
     }
 
     @Override
@@ -323,8 +352,13 @@ public class OrderServiceImpl implements OrderService {
 
         order.setStatus(OrderStatus.CANCELLED);
         releaseOrderStock(order);
+        Order savedOrder = orderRepository.save(order);
         
-        return mapToResponse(orderRepository.save(order));
+        // Send order status notification
+        sendNotificationSafe(savedOrder.getUserId(), "Order Cancelled", 
+                "Your order has been cancelled", "ORDER");
+        
+        return mapToResponse(savedOrder);
     }
 
     @Override
@@ -354,8 +388,28 @@ public class OrderServiceImpl implements OrderService {
             throw new InvalidOrderStatusException("Expired orders cannot be modified.");
         }
         
+        OrderStatus oldStatus = order.getStatus();
         order.setStatus(status);
-        return mapToResponse(orderRepository.save(order));
+        Order savedOrder = orderRepository.save(order);
+        
+        // Notify if status changed
+        if (savedOrder.getStatus() != oldStatus) {
+            if (savedOrder.getStatus() == OrderStatus.RESERVED) {
+                sendNotificationSafe(savedOrder.getUserId(), "Order Awaiting Payment", 
+                        "Your order has been placed and is awaiting payment", "ORDER");
+            } else if (savedOrder.getStatus() == OrderStatus.CONFIRMED) {
+                sendNotificationSafe(savedOrder.getUserId(), "Order Confirmed", 
+                        "Your order has been confirmed and is being processed", "ORDER");
+            } else if (savedOrder.getStatus() == OrderStatus.CANCELLED) {
+                sendNotificationSafe(savedOrder.getUserId(), "Order Cancelled", 
+                        "Your order has been cancelled", "ORDER");
+            } else if (savedOrder.getStatus() == OrderStatus.EXPIRED) {
+                sendNotificationSafe(savedOrder.getUserId(), "Order Reservation Expired", 
+                        "Your order reservation has expired", "ORDER");
+            }
+        }
+        
+        return mapToResponse(savedOrder);
     }
 
     private void releaseOrderStock(Order order) {
@@ -393,5 +447,15 @@ public class OrderServiceImpl implements OrderService {
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())
                 .build();
+    }
+
+    private void sendNotificationSafe(UUID userId, String title, String message, String type) {
+        try {
+            log.info("Sending order status notification to user {}: {} - {}", userId, title, message);
+            notificationClient.sendNotification(new SendNotificationRequest(userId, title, message, type));
+        } catch (Exception e) {
+            log.error("Failed to send order status notification to user {} (this is non-critical): {}", 
+                    userId, e.getMessage());
+        }
     }
 }

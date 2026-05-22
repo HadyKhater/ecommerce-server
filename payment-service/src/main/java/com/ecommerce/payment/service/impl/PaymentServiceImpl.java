@@ -1,8 +1,8 @@
 package com.ecommerce.payment.service.impl;
 
 import com.ecommerce.payment.client.OrderServiceClient;
-import com.ecommerce.payment.dto.PaymentRequest;
-import com.ecommerce.payment.dto.PaymentResponse;
+import com.ecommerce.payment.client.NotificationClient;
+import com.ecommerce.payment.dto.*;
 import com.ecommerce.payment.entity.Payment;
 import com.ecommerce.payment.entity.PaymentStatus;
 import com.ecommerce.payment.exception.PaymentException;
@@ -27,6 +27,7 @@ public class PaymentServiceImpl implements PaymentService {
 
     private final PaymentRepository paymentRepository;
     private final OrderServiceClient orderServiceClient;
+    private final NotificationClient notificationClient;
 
     @Override
     @Transactional
@@ -71,6 +72,10 @@ public class PaymentServiceImpl implements PaymentService {
             // Two-phase commit: Confirm the reserved order after successful payment
             log.info("Payment succeeded for order {}, confirming reservation", request.getOrderId());
             confirmOrderReservation(payment.getOrderId());
+            
+            // Notify success
+            sendNotificationSafe(userId, "Payment Successful", 
+                    "Your payment of " + payment.getAmount() + " EGP was successful", "PAYMENT");
 
         } catch (Exception e) {
             log.error("Payment failed for order {}", request.getOrderId(), e);
@@ -80,6 +85,10 @@ public class PaymentServiceImpl implements PaymentService {
             // Two-phase commit: Cancel the reservation on payment failure
             log.info("Payment failed for order {}, cancelling reservation", request.getOrderId());
             cancelOrderReservation(payment.getOrderId());
+            
+            // Notify failure
+            sendNotificationSafe(userId, "Payment Failed", 
+                    "Your payment failed, please try again", "PAYMENT");
             
             throw new PaymentException("Payment processing failed: " + e.getMessage());
         }
@@ -190,5 +199,15 @@ public class PaymentServiceImpl implements PaymentService {
                 .createdAt(payment.getCreatedAt())
                 .updatedAt(payment.getUpdatedAt())
                 .build();
+    }
+
+    private void sendNotificationSafe(UUID userId, String title, String message, String type) {
+        try {
+            log.info("Sending payment notification to user {}: {} - {}", userId, title, message);
+            notificationClient.sendNotification(new SendNotificationRequest(userId, title, message, type));
+        } catch (Exception e) {
+            log.error("Failed to send payment notification to user {} (non-critical): {}", 
+                    userId, e.getMessage());
+        }
     }
 }

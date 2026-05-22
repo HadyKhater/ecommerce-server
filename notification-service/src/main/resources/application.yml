@@ -23,7 +23,7 @@ spring:
     baseline-on-migrate: true
 
 server:
-  port: 8087
+  port: 8086
 
 eureka:
   client:

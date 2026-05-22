@@ -54,9 +54,16 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
                 }
             }
 
+            Object principal = userIdHeader;
+            try {
+                principal = UUID.fromString(userIdHeader);
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid user ID format: {}", userIdHeader);
+            }
+
             UsernamePasswordAuthenticationToken authentication =
                     new UsernamePasswordAuthenticationToken(
-                            UUID.fromString(userIdHeader),
+                            principal,
                             null,
                             authorities
                     );
@@ -71,6 +78,6 @@ public class GatewayAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
-        return path.startsWith("/actuator");
+        return path.startsWith("/actuator") || path.startsWith("/ws");
     }
 }
