@@ -79,7 +79,13 @@ spring:
             - Path=/api/payments/**
           filters:
             - StripPrefix=1
-
+        # Stripe Service
+        - id: stripe-service
+          uri: lb://payment-service
+          predicates:
+          - Path=/api/stripe/**
+          filters:
+          - StripPrefix=1
         # Notification Service
         - id: notification-service
           uri: lb://notification-service

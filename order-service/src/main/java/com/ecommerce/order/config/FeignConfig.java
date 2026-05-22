@@ -27,12 +27,18 @@ public class FeignConfig {
                 String userId = request.getHeader("X-User-Id");
                 if (userId != null) {
                     requestTemplate.header("X-User-Id", userId);
+                } else {
+                    // Fallback for scheduled tasks and internal calls
+                    requestTemplate.header("X-User-Id", "system");
                 }
                 
                 String userRoles = request.getHeader("X-User-Roles");
                 if (userRoles != null) {
                     requestTemplate.header("X-User-Roles", userRoles);
                 }
+            } else {
+                // No HTTP request context (e.g., scheduled tasks)
+                requestTemplate.header("X-User-Id", "system");
             }
         };
     }

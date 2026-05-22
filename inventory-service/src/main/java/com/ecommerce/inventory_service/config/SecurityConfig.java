@@ -37,7 +37,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/inventory/restock").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/inventory/{productId}/adjust").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/inventory/reserve").hasAnyRole("USER", "ADMIN")
-                .requestMatchers(HttpMethod.POST, "/inventory/release").hasAnyRole("USER", "ADMIN")
+                .requestMatchers(HttpMethod.POST, "/inventory/release").permitAll()
                 .requestMatchers(HttpMethod.POST, "/inventory/initialize/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

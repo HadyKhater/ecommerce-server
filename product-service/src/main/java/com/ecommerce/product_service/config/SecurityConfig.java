@@ -52,6 +52,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/promotions/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/promotions/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PATCH, "/promotions/**").hasRole("ADMIN")
+                        .requestMatchers("/promotions/validate-internal").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

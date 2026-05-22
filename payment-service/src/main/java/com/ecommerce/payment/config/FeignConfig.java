@@ -33,6 +33,11 @@ public class FeignConfig {
                 if (userRoles != null) {
                     requestTemplate.header("X-User-Roles", userRoles);
                 }
+            } else {
+                // No HTTP request context (e.g. called from Stripe webhook async thread)
+                // Use internal system identity for service-to-service calls
+                requestTemplate.header("X-User-Id", "system");
+                requestTemplate.header("X-User-Roles", "SYSTEM");
             }
         };
     }

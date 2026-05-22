@@ -41,6 +41,27 @@ public class PromotionController {
         return ResponseEntity.ok().build();
     }
 
+    @PostMapping("/validate-internal")
+    public ResponseEntity<ValidatePromoCodeResponse> validatePromoCodeInternal(
+            @Valid @RequestBody ApplyPromoCodeRequest request) {
+        log.debug("POST /promotions/validate-internal - Internal validation of code: {}", request.code());
+        
+        // Use the orderAmount from the request if provided, otherwise default to ZERO
+        java.math.BigDecimal orderAmount = request.orderAmount() != null 
+                ? request.orderAmount() 
+                : java.math.BigDecimal.ZERO;
+        
+        ValidatePromoCodeRequest validateRequest = new ValidatePromoCodeRequest(
+                request.code(),
+                orderAmount,
+                request.userId(),
+                request.userEmail(),
+                null
+        );
+        
+        return ResponseEntity.ok(promotionService.validatePromoCode(validateRequest));
+    }
+
     @GetMapping("/active")
     @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<List<PromotionResponse>> getActivePromotions() {

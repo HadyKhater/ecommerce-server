@@ -37,6 +37,9 @@ public class Order {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    @Column(name = "promo_code")
+    private String promoCode;
+
     @Column(nullable = false)
     private String currency;
 

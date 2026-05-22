@@ -14,4 +14,16 @@
 
         @PutMapping("/orders/{orderId}/payment-status")
         void updateOrderPaymentStatus(@PathVariable("orderId") UUID orderId, @RequestParam("status") String status);
+        
+        /**
+         * Confirm a reserved order after successful payment (two-phase commit)
+         */
+        @PutMapping("/orders/{orderId}/confirm")
+        void confirmOrder(@PathVariable("orderId") UUID orderId);
+        
+        /**
+         * Cancel a reserved order on payment failure (two-phase commit)
+         */
+        @PutMapping("/orders/{orderId}/cancel-reservation")
+        void cancelReservation(@PathVariable("orderId") UUID orderId);
     }

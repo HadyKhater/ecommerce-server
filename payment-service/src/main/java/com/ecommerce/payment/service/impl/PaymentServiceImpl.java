@@ -68,14 +68,19 @@ public class PaymentServiceImpl implements PaymentService {
             payment.setStatus(PaymentStatus.SUCCESS);
             payment = paymentRepository.save(payment);
             
-            // Notify Order Service
-            notifyOrderService(payment.getOrderId(), payment.getStatus().name());
+            // Two-phase commit: Confirm the reserved order after successful payment
+            log.info("Payment succeeded for order {}, confirming reservation", request.getOrderId());
+            confirmOrderReservation(payment.getOrderId());
 
         } catch (Exception e) {
             log.error("Payment failed for order {}", request.getOrderId(), e);
             payment.setStatus(PaymentStatus.FAILED);
             payment = paymentRepository.save(payment);
-            notifyOrderService(payment.getOrderId(), payment.getStatus().name());
+            
+            // Two-phase commit: Cancel the reservation on payment failure
+            log.info("Payment failed for order {}, cancelling reservation", request.getOrderId());
+            cancelOrderReservation(payment.getOrderId());
+            
             throw new PaymentException("Payment processing failed: " + e.getMessage());
         }
 
@@ -106,6 +111,28 @@ public class PaymentServiceImpl implements PaymentService {
     public void notifyOrderServiceFallback(UUID orderId, String status, Exception e) {
         log.error("Failed to notify Order Service for order {} with status {}", orderId, status, e);
         // Could send to a dead letter queue or save for later retry
+    }
+
+    @CircuitBreaker(name = "orderService", fallbackMethod = "confirmOrderFallback")
+    protected void confirmOrderReservation(UUID orderId) {
+        log.info("Confirming order reservation for order {}", orderId);
+        orderServiceClient.confirmOrder(orderId);
+    }
+
+    public void confirmOrderFallback(UUID orderId, Exception e) {
+        log.error("Failed to confirm order reservation for order {}", orderId, e);
+        // Log for manual review - payment succeeded but order confirmation failed
+    }
+
+    @CircuitBreaker(name = "orderService", fallbackMethod = "cancelOrderFallback")
+    protected void cancelOrderReservation(UUID orderId) {
+        log.info("Cancelling order reservation for order {}", orderId);
+        orderServiceClient.cancelReservation(orderId);
+    }
+
+    public void cancelOrderFallback(UUID orderId, Exception e) {
+        log.error("Failed to cancel order reservation for order {}", orderId, e);
+        // Log for manual review - payment failed but order cancellation failed
     }
 
     @Override

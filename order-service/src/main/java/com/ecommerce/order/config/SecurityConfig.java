@@ -30,6 +30,8 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.PUT, "/admin/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET, "/admin/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT, "/*/payment-status").permitAll() // Called internally
+                .requestMatchers(HttpMethod.PUT, "/*/confirm").permitAll() // Called by payment-service webhook
+                .requestMatchers(HttpMethod.PUT, "/*/cancel-reservation").permitAll() // Called by payment-service webhook
                 .requestMatchers("/actuator/**").permitAll()
                 .anyRequest().authenticated()
             )

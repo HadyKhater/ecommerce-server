@@ -116,4 +116,50 @@ public class OrderController {
         OrderResponse response = orderService.updateOrderStatus(orderId, status);
         return ResponseEntity.ok(response);
     }
+
+    // ==================== Two-Phase Order Creation Endpoints ====================
+
+    /**
+     * Phase 1: Create a temporary order reservation (awaiting payment)
+     * This reserves stock but does not finalize the order.
+     * The reservation expires after a configurable timeout if not confirmed.
+     */
+    @PostMapping("/reserve")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<OrderResponse> createOrderReservation(@Valid @RequestBody OrderRequest request) {
+        UUID userId = getCurrentUserId();
+        log.info("POST /orders/reserve - Create order reservation for user: {}", userId);
+        OrderResponse response = orderService.createOrderReservation(userId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    /**
+     * Phase 2: Confirm a reserved order after successful payment
+     * This converts the reservation to a confirmed order.
+     */
+    @PutMapping("/{orderId}/confirm")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<OrderResponse> confirmOrder(@PathVariable UUID orderId) {
+        log.info("PUT /orders/{}/confirm - Confirm reserved order", orderId);
+        OrderResponse response = orderService.confirmOrder(orderId);
+        return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Cancel a reserved order (e.g., on payment failure)
+     * This releases the reserved stock and marks the order as cancelled.
+     */
+    @PutMapping("/{orderId}/cancel-reservation")
+    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
+    public ResponseEntity<OrderResponse> cancelReservation(@PathVariable UUID orderId) {
+        log.info("PUT /orders/{}/cancel-reservation - Cancel order reservation", orderId);
+        
+        OrderResponse checkResponse = orderService.getOrder(orderId);
+        if (!checkResponse.getUserId().equals(getCurrentUserId())) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
+        OrderResponse response = orderService.cancelReservation(orderId);
+        return ResponseEntity.ok(response);
+    }
 }

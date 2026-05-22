@@ -40,7 +40,9 @@ public class JwtAuthenticationFilter implements GlobalFilter {
     private static final List<String> PUBLIC_PATHS = List.of(
             "/api/auth/login",
             "/api/auth/register",
-            "/api/auth/refresh");
+            "/api/auth/refresh",
+            "/api/stripe/webhook"
+        );
 
     @Value("${jwt.public-key:#{null}}")
     private String publicKeyBase64;

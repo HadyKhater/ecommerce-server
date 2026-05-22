@@ -50,7 +50,9 @@ logging:
     root: INFO
     com.netflix.eureka: OFF
     com.netflix.discovery: OFF
-
+    com.ecommerce.order: DEBUG
+  file:
+    name: logs/order-service.log
 gateway:
   internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
 

@@ -91,13 +91,15 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ProblemDetail handleGenericException(Exception ex) {
-        log.error("Unexpected error: {}", ex.getMessage(), ex);
+        log.error("Unexpected error of type {}: {}", ex.getClass().getName(), ex.getMessage(), ex);
 
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.INTERNAL_SERVER_ERROR);
         problem.setType(URI.create(BASE_TYPE + "internal-error"));
         problem.setTitle("Internal Server Error");
-        problem.setDetail("An unexpected error occurred");
+        problem.setDetail("An unexpected error occurred: " + ex.getClass().getSimpleName());
         problem.setProperty("timestamp", Instant.now());
+        problem.setProperty("exceptionType", ex.getClass().getName());
+        problem.setProperty("exceptionMessage", ex.getMessage());
 
         return problem;
     }

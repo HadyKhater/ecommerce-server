@@ -795,13 +795,297 @@ Base URL (internal, after Gateway StripPrefix=1): `/cart`
 
 ## Order Service (port 8085)
 
-[placeholder — to be filled]
+> **Gateway Note:** The API Gateway uses `StripPrefix=1`.
+> External requests use `/api/orders/**` but the Order Service receives `/orders/**` internally.
+> All controller mappings and security rules inside order-service use `/orders` (without `/api`).
+
+Base URL (external): `/api/orders`
+Base URL (internal, after Gateway StripPrefix=1): `/orders`
+
+### Security Model
+
+- All endpoints require `X-Gateway-Secret` header
+- User identification via `X-User-Id` header (injected by gateway after JWT verification)
+
+### Order Lifecycle & Two-Phase Commit
+
+Orders follow a two-phase commit pattern to ensure orders are only finalized after successful payment:
+
+```
+1. POST /orders/reserve     → Creates order with RESERVED status (stock reserved)
+2. Payment Processing       → Payment is processed
+3a. PUT /orders/{id}/confirm → On payment success → Order becomes CONFIRMED
+3b. PUT /orders/{id}/cancel-reservation → On payment failure → Order becomes CANCELLED, stock released
+```
+
+**Order Status Flow:**
+```
+RESERVED → CONFIRMED → PROCESSING → SHIPPED → DELIVERED
+    ↓
+CANCELLED (if payment fails or user cancels)
+```
+
+### Endpoints
+
+#### POST /api/orders/reserve (Two-Phase Commit - Phase 1)
+
+**Description:** Create a temporary order reservation awaiting payment. Stock is reserved but the order is not finalized.
+
+**Access:** USER, ADMIN
+
+**Request Body:**
+```json
+{
+  "items": [
+    {
+      "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+      "quantity": 2
+    }
+  ],
+  "shippingAddress": "123 Main St, Cairo, Egypt",
+  "currency": "EGP",
+  "userEmail": "user@example.com",
+  "promoCode": "SAVE10",
+  "discountAmount": 100.00
+}
+```
+
+**Server-Side Discount Validation:**
+- The promo code is re-validated server-side against the product-service
+- Discount amount is recalculated on the server to prevent client manipulation
+- If validation fails, the order proceeds without discount
+
+**Response 201:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "userId": "user-uuid",
+  "userEmail": "user@example.com",
+  "status": "RESERVED",
+  "totalAmount": 299.98,
+  "currency": "EGP",
+  "shippingAddress": "123 Main St, Cairo, Egypt",
+  "items": [
+    {
+      "id": "item-uuid",
+      "productId": "d1fe25ab-b259-4c8e-ab13-babb47d5fade",
+      "productName": "Wireless Headphones",
+      "quantity": 2,
+      "unitPrice": 199.99,
+      "totalPrice": 399.98
+    }
+  ],
+  "createdAt": "2026-01-01T10:00:00Z",
+  "updatedAt": "2026-01-01T10:00:00Z"
+}
+```
+
+---
+
+#### PUT /api/orders/{orderId}/confirm (Two-Phase Commit - Phase 2a)
+
+**Description:** Confirm a reserved order after successful payment. Converts status from RESERVED to CONFIRMED.
+
+**Access:** USER, ADMIN
+
+**Response 200:** Updated OrderResponse with status CONFIRMED
+
+**Response 400:** Order is not in RESERVED status
+
+---
+
+#### PUT /api/orders/{orderId}/cancel-reservation (Two-Phase Commit - Phase 2b)
+
+**Description:** Cancel a reserved order (e.g., on payment failure). Releases reserved stock and sets status to CANCELLED.
+
+**Access:** USER, ADMIN
+
+**Response 200:** Updated OrderResponse with status CANCELLED
+
+**Response 400:** Order is not in RESERVED status
+
+---
+
+#### POST /api/orders (Legacy - Direct Order Creation)
+
+**Description:** Create an order directly (bypasses two-phase commit). Use for backward compatibility.
+
+**Access:** USER, ADMIN
+
+**Note:** This endpoint creates an order with PENDING status. For new integrations, use `/orders/reserve` + confirm flow.
+
+---
+
+#### PUT /api/orders/{orderId}/payment-status
+
+**Description:** Internal endpoint used by Payment Service to update order payment status.
+
+**Access:** Internal (requires X-Gateway-Secret)
+
+**Request Parameters:**
+- `status`: COMPLETED or FAILED
+
+**Behavior:**
+- COMPLETED → Sets order status to CONFIRMED
+- FAILED → Sets order status to CANCELLED and releases reserved stock
+
+---
+
+#### PUT /api/orders/{orderId}/cancel
+
+**Description:** Cancel an order (for non-reserved orders).
+
+**Access:** USER, ADMIN
+
+---
+
+#### GET /api/orders/{orderId}
+
+**Description:** Get order details by ID.
+
+**Access:** USER, ADMIN (users can only view their own orders)
+
+---
+
+#### GET /api/orders/user/{userId}
+
+**Description:** Get all orders for a specific user.
+
+**Access:** USER, ADMIN (users can only view their own orders)
+
+---
+
+#### GET /api/orders/admin/all
+
+**Description:** Get all orders (admin only).
+
+**Access:** ADMIN only
+
+---
+
+#### PUT /api/orders/admin/{orderId}/status
+
+**Description:** Update order status (admin only).
+
+**Access:** ADMIN only
 
 ---
 
 ## Payment Service (port 8086)
 
-[placeholder — to be filled]
+> **Gateway Note:** The API Gateway uses `StripPrefix=1`.
+> External requests use `/api/payments/**` but the Payment Service receives `/payments/**` internally.
+
+Base URL (external): `/api/payments`
+Base URL (internal, after Gateway StripPrefix=1): `/payments`
+
+### Payment Flow
+
+The Payment Service implements a two-phase commit pattern:
+
+1. **Order Reservation:** Order is created with RESERVED status (stock held)
+2. **Payment Processing:** Payment is processed via chosen method
+3. **On Success:** Order is confirmed (RESERVED → CONFIRMED)
+4. **On Failure:** Reservation is cancelled (RESERVED → CANCELLED), stock released
+
+### Endpoints
+
+#### POST /api/payments/process
+
+**Description:** Process a payment for an order.
+
+**Access:** USER, ADMIN
+
+**Request Body:**
+```json
+{
+  "orderId": "550e8400-e29b-41d4-a716-446655440000",
+  "amount": 299.98,
+  "currency": "EGP",
+  "paymentMethod": "CREDIT_CARD"
+}
+```
+
+**Response 200:**
+```json
+{
+  "id": "payment-uuid",
+  "orderId": "550e8400-e29b-41d4-a716-446655440000",
+  "userId": "user-uuid",
+  "amount": 299.98,
+  "currency": "EGP",
+  "status": "SUCCESS",
+  "paymentMethod": "CREDIT_CARD",
+  "transactionId": "TXN-12345678",
+  "createdAt": "2026-01-01T10:00:00Z",
+  "updatedAt": "2026-01-01T10:00:05Z"
+}
+```
+
+---
+
+### Stripe Integration
+
+#### POST /api/stripe/checkout
+
+**Description:** Create a Stripe checkout session.
+
+**Request Body:**
+```json
+{
+  "orderId": "550e8400-e29b-41d4-a716-446655440000",
+  "amount": 600,
+  "currency": "usd",
+  "items": [
+    {
+      "name": "Wireless Headphones",
+      "amount": 400,
+      "currency": "usd",
+      "quantity": 1
+    }
+  ],
+  "discountCode": "SAVE10",
+  "discountType": "PERCENTAGE",
+  "discountValue": 10
+}
+```
+
+**Discount Handling:**
+- Discounts are applied via Stripe's built-in coupon system
+- The backend creates a Stripe coupon with the discount code
+- Coupon is applied to the checkout session
+- Discount info is stored in session metadata for tracking
+
+**Response 200:**
+```json
+{
+  "sessionId": "cs_test_...",
+  "orderId": "550e8400-e29b-41d4-a716-446655440000",
+  "url": "https://checkout.stripe.com/..."
+}
+```
+
+---
+
+#### POST /api/stripe/webhook
+
+**Description:** Stripe webhook endpoint for payment events.
+
+**Events Handled:**
+- `checkout.session.completed` → Confirms the reserved order
+- `payment_intent.succeeded` → Logs successful payment
+- `payment_intent.payment_failed` → Logs failed payment
+
+---
+
+### Discount & Coupon Flow
+
+1. **Validation:** Promo code is validated against Product Service
+2. **Calculation:** Discount amount is calculated server-side
+3. **Application:** 
+   - For direct payments: Discount is subtracted from order total
+   - For Stripe: Discount is applied via Stripe coupon system
+4. **Tracking:** Promotion usage is recorded after successful payment
 
 ---
 

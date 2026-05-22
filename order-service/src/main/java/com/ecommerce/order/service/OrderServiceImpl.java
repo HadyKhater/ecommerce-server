@@ -107,12 +107,162 @@ public class OrderServiceImpl implements OrderService {
         return mapToResponse(savedOrder);
     }
 
+    @Override
+    @Transactional
+    @CircuitBreaker(name = "productService")
+    public OrderResponse createOrderReservation(UUID userId, OrderRequest request) {
+        log.info("Creating order reservation for user: {} (two-phase commit)", userId);
+
+        Order order = Order.builder()
+                .userId(userId)
+                .userEmail(request.getUserEmail() != null ? request.getUserEmail() : userId.toString())
+                .status(OrderStatus.RESERVED)  // RESERVED status - not yet confirmed
+                .currency(request.getCurrency())
+                .shippingAddress(request.getShippingAddress())
+                .build();
+
+        BigDecimal totalAmount = BigDecimal.ZERO;
+
+        for (CartItemDto itemDto : request.getItems()) {
+            // Fetch product details
+            ProductDto product = productClient.getProduct(itemDto.getProductId());
+            
+            // Reserve stock
+            try {
+                inventoryClient.reserveStock(new ReserveStockRequest(product.getId(), itemDto.getQuantity()));
+            } catch (Exception e) {
+                log.error("Failed to reserve stock for product {}: {}", product.getId(), e.getMessage());
+                throw new InsufficientStockException("Could not reserve stock for product: " + product.getName());
+            }
+
+            BigDecimal itemTotal = product.getPrice().multiply(BigDecimal.valueOf(itemDto.getQuantity()));
+            totalAmount = totalAmount.add(itemTotal);
+
+            OrderItem orderItem = OrderItem.builder()
+                    .order(order)
+                    .productId(product.getId())
+                    .productName(product.getName())
+                    .quantity(itemDto.getQuantity())
+                    .unitPrice(product.getPrice())
+                    .totalPrice(itemTotal)
+                    .build();
+
+            order.addItem(orderItem);
+        }
+
+        // ==================== Server-side Discount Validation ====================
+        // Re-validate and calculate discount on the server to prevent client manipulation
+        BigDecimal discountAmount = BigDecimal.ZERO;
+        if (request.getPromoCode() != null && !request.getPromoCode().isEmpty()) {
+            try {
+                log.info("Validating promo code server-side: {}", request.getPromoCode());
+                // Call product-service to validate the promo code
+                String url = productServiceUrl + "/promotions/validate-internal";
+                
+                // Build validation request with order details
+                ApplyPromoCodeRequest validateRequest = new ApplyPromoCodeRequest(
+                    request.getPromoCode(), 
+                    userId, 
+                    request.getUserEmail(),
+                    totalAmount
+                );
+                
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_JSON);
+                headers.set("X-Gateway-Secret", internalSecret);
+                
+                HttpEntity<ApplyPromoCodeRequest> entity = new HttpEntity<>(validateRequest, headers);
+                
+                // Use exchange to get the response for validation
+                var response = restTemplate.exchange(
+                    url,
+                    org.springframework.http.HttpMethod.POST,
+                    entity,
+                    java.util.Map.class
+                );
+                
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    @SuppressWarnings("unchecked")
+                    java.util.Map<String, Object> body = (java.util.Map<String, Object>) response.getBody();
+                    if (body.containsKey("discountAmount")) {
+                        discountAmount = new BigDecimal(body.get("discountAmount").toString());
+                        log.info("Server-validated discount amount: {}", discountAmount);
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to validate promo code server-side: {}. Proceeding without discount.", e.getMessage());
+                discountAmount = BigDecimal.ZERO;
+            }
+        } else if (request.getDiscountAmount() != null && request.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
+            // If no promo code but discount amount is provided, use it (for backward compatibility)
+            discountAmount = request.getDiscountAmount();
+        }
+        
+        if (discountAmount.compareTo(BigDecimal.ZERO) < 0) {
+            log.error("Invalid discount amount: {}", discountAmount);
+            throw new IllegalArgumentException("Discount amount cannot be negative");
+        }
+        
+        BigDecimal finalAmount = totalAmount.subtract(discountAmount);
+        if (finalAmount.compareTo(BigDecimal.ZERO) < 0) {
+            finalAmount = BigDecimal.ZERO;
+        }
+
+        order.setTotalAmount(finalAmount);
+
+        if (request.getPromoCode() != null && !request.getPromoCode().isBlank()) {
+            order.setPromoCode(request.getPromoCode());
+        }
+
+        Order savedOrder = orderRepository.save(order);
+
+        log.info("Order reservation created: {} with status RESERVED, awaiting payment confirmation", savedOrder.getId());
+        return mapToResponse(savedOrder);
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse confirmOrder(UUID orderId) {
+        log.info("Confirming reserved order: {}", orderId);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        if (order.getStatus() != OrderStatus.RESERVED) {
+            throw new InvalidOrderStatusException("Only RESERVED orders can be confirmed. Current status: " + order.getStatus());
+        }
+
+        order.setStatus(OrderStatus.CONFIRMED);
+        
+        if (order.getPromoCode() != null && !order.getPromoCode().isBlank()) {
+            applyPromotion(order.getPromoCode(), order.getUserId(), order.getUserEmail());
+        }
+        
+        return mapToResponse(orderRepository.save(order));
+    }
+
+    @Override
+    @Transactional
+    public OrderResponse cancelReservation(UUID orderId) {
+        log.info("Cancelling order reservation: {}", orderId);
+        Order order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+
+        if (order.getStatus() != OrderStatus.RESERVED) {
+            throw new InvalidOrderStatusException("Only RESERVED orders can be cancelled via this endpoint. Current status: " + order.getStatus());
+        }
+
+        order.setStatus(OrderStatus.CANCELLED);
+        releaseOrderStock(order);
+        
+        return mapToResponse(orderRepository.save(order));
+    }
+
     private void applyPromotion(String code, UUID userId, String userEmail) {
         try {
             log.info("Calling product-service to apply promo code: {}", code);
             String url = productServiceUrl + "/promotions/apply";
 
-            ApplyPromoCodeRequest applyRequest = new ApplyPromoCodeRequest(code, userId, userEmail);
+            ApplyPromoCodeRequest applyRequest = new ApplyPromoCodeRequest(code, userId, userEmail, null);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
@@ -139,6 +289,7 @@ public class OrderServiceImpl implements OrderService {
     public List<OrderResponse> getUserOrders(UUID userId) {
         return orderRepository.findByUserIdOrderByCreatedAtDesc(userId)
                 .stream()
+                .filter(order -> order.getStatus() != OrderStatus.RESERVED && order.getStatus() != OrderStatus.EXPIRED)
                 .map(this::mapToResponse)
                 .collect(Collectors.toList());
     }
@@ -190,6 +341,18 @@ public class OrderServiceImpl implements OrderService {
         log.info("Updating order {} status to {}", orderId, status);
         Order order = orderRepository.findById(orderId)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found: " + orderId));
+        
+        // Validate status transitions for RESERVED orders
+        if (order.getStatus() == OrderStatus.RESERVED) {
+            if (status != OrderStatus.CANCELLED) {
+                throw new InvalidOrderStatusException("Reserved orders can only be cancelled manually. Complete payment to confirm.");
+            }
+        }
+        
+        // Validate status transitions for EXPIRED orders
+        if (order.getStatus() == OrderStatus.EXPIRED) {
+            throw new InvalidOrderStatusException("Expired orders cannot be modified.");
+        }
         
         order.setStatus(status);
         return mapToResponse(orderRepository.save(order));

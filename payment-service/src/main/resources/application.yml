@@ -2,6 +2,12 @@ spring:
   application:
     name: payment-service
 
+  devtools:
+    restart:
+      enabled: false
+    livereload:
+      enabled: false
+
   datasource:
     url: jdbc:postgresql://localhost:5432/payment_db
     username: postgres
@@ -49,6 +55,13 @@ logging:
 
 gateway:
   internal-secret: ${GATEWAY_INTERNAL_SECRET:super-secret-gateway-key}
+
+stripe:
+  api-key: ${STRIPE_SECRET_KEY:sk_test_51TY2lsFIMsEYqNvl7pBB2foYDEwvBqLDPySRhcF01SPrkaL46V9jirlTZ4G8xvufsPomXHK4WCRnNZrc7W6YmDL900gPiuLGiP}
+  public-key: ${STRIPE_PUBLIC_KEY:pk_test_51TY2lsFIMsEYqNvlpomUPKVci5SSDXBdPjyxbl8JPXnqQRvBkLztBvxVrFaBHpyQTdRyncwW4limwsPj1QGXf4ww001OcwPlTd}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:whsec_572e9ad1691050e9166ab242598beebf230503addc643ff7d4fbbd5b049b6c01}
+  success-url: ${STRIPE_SUCCESS_URL:http://localhost:4200/payment/success?sessionId={CHECKOUT_SESSION_ID}}
+  cancel-url: ${STRIPE_CANCEL_URL:http://localhost:4200/payment/cancel}
 
 resilience4j:
   circuitbreaker:

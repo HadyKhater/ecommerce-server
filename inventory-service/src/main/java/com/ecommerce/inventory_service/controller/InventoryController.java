@@ -118,7 +118,6 @@ public class InventoryController {
     }
 
     @PostMapping("/release")
-    @PreAuthorize("hasAnyRole('USER', 'ADMIN')")
     public ResponseEntity<InventoryResponse> releaseStock(
             @Valid @RequestBody ReserveStockRequest request) {
         log.info("POST /inventory/release - Releasing stock for product: {} with quantity: {}",
