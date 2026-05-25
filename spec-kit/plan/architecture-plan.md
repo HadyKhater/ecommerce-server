@@ -63,9 +63,9 @@ Out of scope:
            ┌─────────────────────────────────────────┐
            │                                         │
      ┌─────▼─────┐                           ┌─────▼─────┐
-     │    Cart   │                           │   Order   │
+     │   Cart    │                           │   Order   │
      │  Service  │                           │  Service  │
-     │   :8084   │                           │   :8085   │
+     │   :8087   │                           │   :8084   │
      └─────┬─────┘                           └─────┬─────┘
            │                                       │
     ┌──────▼──────┐                         ┌──────▼──────┐
@@ -78,14 +78,14 @@ Out of scope:
     ┌──────────────┐  ┌──────────────┐     ┌─────▼─────┐
     │   Payment    │  │ Notification │     │  Eureka   │
     │   Service    │  │   Service    │     │  Server   │
-    │    :8086     │  │    :8087     │     │   :8761   │
-    └──────┬───────┘  └──────────────┘     └───────────┘
-           │
-    ┌──────▼──────┐
-    │ payment_db  │
-    │ - payments  │
-    │ - idempotency│
-    └─────────────┘
+    │    :8085     │  │    :8086     │     │   :8761   │
+    └──────┬───────┘  └──────┬───────┘     └───────────┘
+           │                 │
+    ┌──────▼──────┐   ┌──────▼──────┐
+    │ payment_db  │   │notification │
+    │ - payments  │   │    _db      │
+    │ - idempotency│  │-notifications│
+    └─────────────┘   └─────────────┘
 
     Frontend → API Gateway (8080) → Services (8081-8087)
     Services trust Gateway via X-Gateway-Secret header
@@ -331,7 +331,9 @@ CREATE TABLE inventory (
 
 ---
 
-### 6. Cart Service `:8084`
+---
+
+### 6. Cart Service `:8087`
 
 **Purpose:** Persistent shopping cart per user  
 **Framework:** Spring Boot + JPA  
@@ -341,8 +343,9 @@ CREATE TABLE inventory (
 - Maintain cart per authenticated user (identified by email from X-User-Email header)
 - Add/update/remove items with inventory integration
 - Persist across sessions in PostgreSQL
-- Handle concurrent modifications with optimistic locking
+- Handle concurrent modifications with optimistic locking (`@Version`)
 - Calculate subtotals and grand totals
+- Cached using Caffeine (maximumSize: 1000, 5-minute expireAfterWrite TTL)
 
 #### Database: `cart_db` (PostgreSQL)
 
@@ -352,7 +355,6 @@ CREATE TABLE inventory (
 | `cart_items` | Items in cart (product ID, quantity, unit price snapshot) |
 
 #### Concurrency Handling
-
 - **Optimistic Locking:** Cart header uses `@Version` field
 - **User Identification:** Via `X-User-Email` header from Gateway (not JWT parsing)
 - **Duplicate Prevention:** Unique constraint on `(cart_id, product_id)` in cart_items
@@ -365,7 +367,7 @@ CREATE TABLE inventory (
 | POST | `/cart/items` | USER/ADMIN | Add item (creates cart if needed, increments if exists) |
 | PUT | `/cart/items/{productId}` | USER/ADMIN | Update quantity (0 removes item) |
 | DELETE | `/cart/items/{productId}` | USER/ADMIN | Remove item from cart |
-| DELETE | `/cart/clear` | USER/ADMIN | Clear all items |
+| DELETE | `/cart/clear` | USER/ADMIN | Clear all items (path: `/cart/clear`) |
 
 #### Response Format
 
@@ -386,18 +388,18 @@ CREATE TABLE inventory (
 
 ---
 
-### 7. Order Service `:8085` ⚠️ ACTUALLY RUNNING ON `:8087`
+### 7. Order Service `:8084`
 
 **Purpose:** Order creation, lifecycle management, order history  
 **Framework:** Spring Boot + JPA  
 **Status:** ✅ **FULLY IMPLEMENTED**
 
 #### Responsibilities
-- ✅ Create orders from cart
-- ✅ Manage order lifecycle (PENDING → CONFIRMED → SHIPPED → DELIVERED)
-- ✅ Handle order cancellation with inventory release
-- 🔄 Idempotent order placement (payment idempotency works, order-level idempotency key not implemented)
-- ❌ Publish domain events to notification service (NOT IMPLEMENTED)
+- Create orders from cart using Two-Phase checkout flow
+- Manage order lifecycle (RESERVED → PENDING → CONFIRMED → SHIPPED → DELIVERED → CANCELLED)
+- Handle order cancellation/rejection with inventory release
+- Automatic sweep of expired reserved orders (background scheduler sweeps RESERVED orders older than 2 minutes every 10 minutes)
+- Feign clients to Inventory, Payment, and Product services with Resilience4j circuit breakers
 
 #### Database: `order_db` (PostgreSQL)
 
@@ -405,220 +407,94 @@ CREATE TABLE inventory (
 |---|---|
 | `orders` | Order header (status, total, addresses) |
 | `order_items` | Items in order (denormalized product details) |
-| `order_events` | Event outbox for async notifications (NOT IMPLEMENTED) |
 
-#### ⚠️ Port Issue
-Order Service application.yml configures port 8087, which conflicts with Notification Service.
-Spec says port 8085. **Action needed:** Change Order Service to 8085 or Notification to 8088.
-
-#### Idempotency Implementation
-
-```
-Header: Idempotency-Key: {UUID}
-
-1. On order creation request:
-   - Check if existing order with same idempotency key
-   - If YES: return existing order (409 or 200)
-   - If NO: proceed with creation, store key + order ID
-2. Subsequent requests with same key return same order
-3. Key expires after 30 days
-```
-
-#### Event Publishing
-
-Orders SHOULD emit events via Spring ApplicationEventPublisher:
-- `OrderCreatedEvent` → Notification Service (NOT IMPLEMENTED)
-- `OrderPaidEvent` → Notification Service (NOT IMPLEMENTED)
-- `OrderShippedEvent` → Notification Service (NOT IMPLEMENTED)
-
-**Status:** Domain events not implemented. Order status changes handled synchronously in service.
-
-#### Order Workflow
-
-```
-1. POST /api/orders (with cart items, address)
-2. Validate cart not empty
-3. Call inventory-service: reserve stock ✅
-4. Call payment-service: process payment (handled separately by frontend)
-5. On payment success:
-   - Update Order entity (status = CONFIRMED) ✅
-   - Publish OrderPaidEvent ❌ NOT IMPLEMENTED
-   - Clear cart (verify implementation)
-   - Return order ✅
-6. On payment failure:
-   - Order status updated to CANCELLED ✅
-   - Call inventory-service: release reservation ✅
-```
+#### Order Workflow (Two-Phase Commit)
+1. **POST /orders/reserve** (Phase 1):
+   - Creates order with `OrderStatus.RESERVED`
+   - Calls Inventory Service Feign Client `/inventory/reserve` to hold stock
+   - Returns temporary reservation order (stock held for 2 minutes)
+2. **Payment Processing**:
+   - Client makes payment through Stripe Checkout session (`/stripe/checkout`) or simulated gateway (`/payments/process`)
+3. **Confirm / Commit** (Phase 2a):
+   - Stripe success webhook or mock payment success endpoint calls `PUT /orders/{id}/confirm`
+   - Order status changes to `OrderStatus.CONFIRMED` and finalizes stock
+4. **Cancel / Rollback** (Phase 2b):
+   - Payment failure calls `PUT /orders/{id}/cancel-reservation`
+   - Order status changed to `CANCELLED` and releases reserved stock back to available pool
 
 #### Key Endpoints
-
-- `POST /api/orders` → Create order
-- `GET /api/orders` → List user's orders (with status filter)
-- `GET /api/orders/{id}` → Order details
-- `POST /api/orders/{id}/cancel` → Cancel order
-- `PUT /api/orders/{id}/status` → Update status (admin only)
+- `POST /orders` → Legacy direct order creation
+- `POST /orders/reserve` → Create order reservation (Phase 1)
+- `PUT /orders/{id}/confirm` → Confirm reservation (Phase 2a)
+- `PUT /orders/{id}/cancel-reservation` → Rollback reservation (Phase 2b)
+- `GET /orders/{id}` → Order details
+- `GET /orders/user/{userId}` → List user's orders
+- `GET /orders/admin/all` → List all orders (admin only)
+- `PUT /orders/admin/{id}/status` → Update order status (admin only)
 
 ---
 
-### 8. Payment Service `:8086`
+### 8. Payment Service `:8085`
 
-**Purpose:** Mock payment processing with retry logic  
-**Framework:** Spring Boot  
+**Purpose:** Stripe gateway and simulated mock payment processing  
+**Framework:** Spring Boot + Stripe Java SDK  
 **Status:** ✅ **FULLY IMPLEMENTED**
 
 #### Responsibilities
-- ✅ Process payments with mock provider (~80% success rate)
-- ✅ Retry failed payments with exponential backoff (Resilience4j)
-- ✅ Idempotency support via orderId (prevents duplicate charges)
-- ✅ Success/failure simulation
+- Stripe Checkout Session API integration with webhook listeners and coupon mapping
+- Mock payment processor with exponential backoff retries and Resilience4j circuit breakers
+- Idempotency support via `orderId` to prevent duplicate charges
+- Transaction logging and refund processing
 
 #### Database: `payment_db` (PostgreSQL)
 
 | Table | Purpose |
 |---|---|
-| `payments` | Payment transaction history |
-| `payment_idempotency_keys` | Idempotency keys + results (NOT IMPLEMENTED - uses orderId instead) |
+| `payments` | Payment transaction history (with status PENDING, SUCCESS, FAILED, REFUNDED) |
 
-#### ✅ Implemented Configuration
-
-```yaml
-# Resilience4j retry configured in application.yml
-resilience4j:
-  retry:
-    instances:
-      paymentProviderRetry:
-        maxAttempts: 3
-        waitDuration: 1s
-        enableExponentialBackoff: true
-        exponentialBackoffMultiplier: 2
-
-# Mock provider in PaymentServiceImpl:
-# - 80% success rate (Math.random() > 0.8 fails)
-# - Returns TXN-XXXXXXXX format transaction IDs
-```
-
-#### ✅ Retry Strategy (Implemented via Resilience4j)
-
-```
-Attempt 1: Immediate
-Attempt 2: After 1 second
-Attempt 3: After 2 seconds (exponential backoff: 1s * 2)
-
-Total max wait: ~3 seconds per payment
-```
-
-#### ✅ Idempotency Implementation
-
-```java
-// Implemented in PaymentServiceImpl.processPayment()
-
-// 1. Check if payment for this order already exists
-Optional<Payment> existingPayment = paymentRepository.findByOrderId(request.getOrderId());
-if (existingPayment.isPresent()) {
-    Payment payment = existingPayment.get();
-    if (payment.getStatus() == PaymentStatus.SUCCESS) {
-        return mapToResponse(payment); // Return existing success
-    } else if (payment.getStatus() == PaymentStatus.PENDING) {
-        return mapToResponse(payment); // Return existing pending
-    }
-    // Retry failed payment
-}
-
-// Uses orderId as idempotency key (no separate IdempotencyKey entity)
-```
-
-#### Payment Response
-
-```json
-{
-  "transactionId": "TXN-2026-004567",
-  "status": "SUCCESS|FAILED",
-  "amount": 99.99,
-  "timestamp": "2026-04-30T14:23:45Z",
-  "reason": "Insufficient funds" // if failed
-}
-```
+#### Resilience Configuration
+- **Resilience4j Retries:** Downstream mock gateway retries configured in `application.yml`:
+  - `maxAttempts`: 3
+  - `waitDuration`: 1s
+  - `enableExponentialBackoff`: true
+  - `exponentialBackoffMultiplier`: 2
+- **Idempotency Check:** Checks `paymentRepository.findByOrderId(orderId)` before processing a transaction.
 
 #### Key Endpoints
-
-- `POST /api/payments/process` → Process payment
-- `GET /api/payments/{id}` → Payment details
-- `POST /api/payments/{id}/retry` → Manual retry
+- `POST /stripe/checkout` → Create Stripe Checkout Session URL (applies Stripe coupon automatically)
+- `GET /stripe/session/{id}` → Retrieve Stripe Session details
+- `POST /stripe/webhook` → Parse verified webhook event callback from Stripe
+- `POST /payments/process` → Process simulated mock payment with retries
+- `GET /payments/{id}` → Retrieve payment transaction details
+- `POST /payments/{id}/refund` → Process mock refund (notifies Order Service)
 
 ---
 
-### 9. Notification Service `:8087` ⚠️ PORT CONFLICT WITH ORDER SERVICE
+### 9. Notification Service `:8086`
 
-**Purpose:** Event-driven notifications (mock email)  
-**Framework:** Spring Boot  
-**Status:** ⏳ **PLACEHOLDER ONLY**
-
-#### ⚠️ Issues Found
-- Port 8087 conflicts with Order Service (both configured for same port)
-- application.yml configures database (notification_db) but spec says stateless
-- Only has Application class with health endpoint - no business logic
+**Purpose:** WebSockets messaging broker and persistent notification logging  
+**Framework:** Spring Boot + WebSocket STOMP + SockJS  
+**Status:** ✅ **FULLY IMPLEMENTED**
 
 #### Responsibilities
-- ❌ Listen for application events (NOT IMPLEMENTED)
-- ❌ Format and send mock emails (NOT IMPLEMENTED)
-- ❌ Ready for SMTP integration (NOT IMPLEMENTED)
-- ❌ Best-effort delivery (NOT IMPLEMENTED)
+- WebSocket connection broker endpoint `/ws` with SockJS support
+- Broadcast real-time alerts to clients subscribed to `/topic/notifications/{userId}`
+- Database-backed logging of alerts in `notification_db` to support offline/historical lookups
+- In-app notification read tracking
 
-#### Database (Configured but Spec Says Stateless)
+#### Database: `notification_db` (PostgreSQL)
 
-- application.yml configures `notification_db` (should be removed)
-- Spec says completely stateless
-- Event listener pattern not implemented
-- No persistence needed (when properly implemented)
+| Table | Purpose |
+|---|---|
+| `notifications` | Notification ledger (id, user_id, title, message, type, is_read, timestamps) |
 
-#### ❌ Event Listeners (NOT IMPLEMENTED)
-
-These event listeners need to be implemented:
-
-```java
-@EventListener
-public void onOrderPaid(OrderPaidEvent event) {
-  // Send "Order Confirmed" email - NOT IMPLEMENTED
-}
-
-@EventListener
-public void onPaymentSuccess(PaymentSuccessEvent event) {
-  // Send "Payment Received" email - NOT IMPLEMENTED
-}
-
-@EventListener
-public void onPaymentFailed(PaymentFailedEvent event) {
-  // Send "Payment Failed" email - NOT IMPLEMENTED
-}
-
-@EventListener
-public void onOrderShipped(OrderShippedEvent event) {
-  // Send "Order Shipped" email - NOT IMPLEMENTED
-}
-```
-
-**Status:** Event classes don't exist. Notification Service is placeholder only.
-
-#### Mock Email Output
-
-```
-[MOCK EMAIL SERVICE]
-To: customer@example.com
-From: noreply@ecommerce.local
-Subject: Order ORD-2026-001234 Confirmed
-Sent: 2026-04-30T14:23:45Z
-
----
-Your order has been confirmed.
-Order #: ORD-2026-001234
-Total: $99.99
-Estimated Delivery: May 5, 2026
----
-```
-
-#### Key Endpoints
-
-- `GET /health` → Health check only
+#### WebSocket & API Endpoints
+- **WebSocket Endpoint:** `ws://localhost:8086/ws`
+- **Subscription Topic:** `/topic/notifications/{userId}`
+- `POST /notifications/send` → Inbound REST endpoint (injected by Feign) to insert alerts and broadcast WebSocket push
+- `GET /notifications/user/{userId}` → Retrieve top 20 historical user notifications
+- `PUT /notifications/{id}/read` → Mark notification as read
+- `GET /notifications/user/{userId}/unread-count` → Get unread count
 
 ---
 

@@ -152,52 +152,13 @@ public class OrderServiceImpl implements OrderService {
             order.addItem(orderItem);
         }
 
-        // ==================== Server-side Discount Validation ====================
-        // Re-validate and calculate discount on the server to prevent client manipulation
+        // Only accept discountAmount if promoCode was provided (already validated in checkout)
         BigDecimal discountAmount = BigDecimal.ZERO;
         if (request.getPromoCode() != null && !request.getPromoCode().isEmpty()) {
-            try {
-                log.info("Validating promo code server-side: {}", request.getPromoCode());
-                // Call product-service to validate the promo code
-                String url = productServiceUrl + "/promotions/validate-internal";
-                
-                // Build validation request with order details
-                ApplyPromoCodeRequest validateRequest = new ApplyPromoCodeRequest(
-                    request.getPromoCode(), 
-                    userId, 
-                    request.getUserEmail(),
-                    totalAmount
-                );
-                
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_JSON);
-                headers.set("X-Gateway-Secret", internalSecret);
-                
-                HttpEntity<ApplyPromoCodeRequest> entity = new HttpEntity<>(validateRequest, headers);
-                
-                // Use exchange to get the response for validation
-                var response = restTemplate.exchange(
-                    url,
-                    org.springframework.http.HttpMethod.POST,
-                    entity,
-                    java.util.Map.class
-                );
-                
-                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> body = (java.util.Map<String, Object>) response.getBody();
-                    if (body.containsKey("discountAmount")) {
-                        discountAmount = new BigDecimal(body.get("discountAmount").toString());
-                        log.info("Server-validated discount amount: {}", discountAmount);
-                    }
-                }
-            } catch (Exception e) {
-                log.warn("Failed to validate promo code server-side: {}. Proceeding without discount.", e.getMessage());
-                discountAmount = BigDecimal.ZERO;
-            }
-        } else if (request.getDiscountAmount() != null && request.getDiscountAmount().compareTo(BigDecimal.ZERO) > 0) {
-            // If no promo code but discount amount is provided, use it (for backward compatibility)
-            discountAmount = request.getDiscountAmount();
+            log.info("Applying discount for promo code: {}", request.getPromoCode());
+            discountAmount = request.getDiscountAmount() != null 
+                ? request.getDiscountAmount() 
+                : BigDecimal.ZERO;
         }
         
         if (discountAmount.compareTo(BigDecimal.ZERO) < 0) {

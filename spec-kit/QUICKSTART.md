@@ -87,7 +87,7 @@ Each folder represents a step in the development process:
 ┌─────────────────────────────────────────────────────────┐
 │              Angular Frontend :4200                     │
 └────────────────────┬────────────────────────────────────┘
-                     │ HTTPS
+                     │ HTTPS / WebSocket
         ┌────────────▼──────────────┐
         │     API Gateway :8080     │← All traffic goes here
         │  - JWT verification (RS256)│
@@ -100,18 +100,16 @@ Each folder represents a step in the development process:
 Auth :8081     Product :8082       Inventory :8083
 - Register     - Products           - Stock levels
 - Login        - Categories         - Reservations
-- JWT tokens   - Search/filter      - Admin restock
+- JWT tokens   - Caffeine caching   - Audited ledger
 
-Cart :8084     Order :8085          Payment :8086
-- Add items    - Place orders        - Mock processing
-- Update qty   - View history        - Idempotency
-- Remove items - Cancel orders       - Retry logic
-- Clear cart   - Events              - (PLACEHOLDER)
+Order :8084    Payment :8085        Notification :8086
+- Place orders  - Stripe payments    - WebSockets broker
+- View history  - Webhook listener   - Persist history
+- Two-Phase flow - Retry / CB        - ws://localhost:8086/ws
 
-Notification :8087     Eureka :8761
-- Event listeners       - Service discovery
-- Mock emails           - Health checks
-- (PLACEHOLDER)
+Cart :8087     Eureka :8761
+- Persist items - Service registry
+- Caffeine     - Health checks
 ```
 
 > **Security Model:** Gateway verifies JWT RS256 and injects `X-User-Id`, `X-User-Email`, `X-User-Roles`, `X-Gateway-Secret` headers. Services validate `X-Gateway-Secret` — direct access without it returns 403.
@@ -126,13 +124,11 @@ Notification :8087     Eureka :8761
 | Gateway | 8080 | (none) | API routing + JWT RS256 | ✅ Complete |
 | Auth | 8081 | auth_db | Users, tokens, logout | ✅ Complete |
 | Product | 8082 | product_db | Catalog, search, categories | ✅ Complete |
-| Inventory | 8083 | inventory_db | Stock, reserve, restock | ✅ Complete* |
-| Cart | 8084 | cart_db | Shopping cart | ✅ Complete |
-| Order | 8085 | order_db | Order lifecycle | ⏳ Placeholder |
-| Payment | 8086 | payment_db | Mock payment processor | ⏳ Placeholder |
-| Notification | 8087 | (none) | Event-driven emails | ⏳ Placeholder |
-
-*Inventory needs `@Version` field added for optimistic locking
+| Inventory | 8083 | inventory_db | Stock, reserve, restock, movement history | ✅ Complete |
+| Order | 8084 | order_db | Two-phase checkout flow & lifecycle | ✅ Complete |
+| Payment | 8085 | payment_db | Stripe payments + simulated retry | ✅ Complete |
+| Notification | 8086 | notification_db | WebSocket broker + persistent alerts | ✅ Complete |
+| Cart | 8087 | cart_db | Persistent cart with Caffeine caching | ✅ Complete |
 
 ---
 
@@ -140,14 +136,17 @@ Notification :8087     Eureka :8761
 
 Start services in this order:
 
-1. **PostgreSQL** (all databases must exist: `auth_db`, `product_db`, `inventory_db`, `cart_db`)
+1. **PostgreSQL** (all databases must exist: `auth_db`, `product_db`, `inventory_db`, `cart_db`, `order_db`, `payment_db`, `notification_db`)
 2. **Eureka Server** (port 8761) - Services depend on this
 3. **Auth Service** (port 8081) - Gateway needs this for public key
 4. **API Gateway** (port 8080) - Fetches public key from auth-service on startup
 5. **Product Service** (port 8082)
 6. **Inventory Service** (port 8083)
-7. **Cart Service** (port 8084)
-8. **Angular Frontend** (port 4200): `ng serve`
+7. **Order Service** (port 8084)
+8. **Payment Service** (port 8085)
+9. **Notification Service** (port 8086)
+10. **Cart Service** (port 8087)
+11. **Angular Frontend** (port 4200): `npm run dev` (running Vite dev server)
 
 ### Environment Variables Required
 
@@ -156,7 +155,7 @@ Start services in this order:
 gateway.jwt.public-key=<RSA public key>  # Or fetched from auth-service
 gateway.internal.secret=super-secret-gateway-key
 
-# All Services (Auth, Product, Inventory, Cart)
+# All Services
 GATEWAY_INTERNAL_SECRET=super-secret-gateway-key
 DB_PASSWORD=<your_postgres_password>
 
@@ -171,52 +170,49 @@ JWT_PRIVATE_KEY_PATH=keys/auth-keypair.pem
 ### 1. Frontend calls API Gateway
 
 ```bash
-POST /api/orders HTTP/1.1
+POST /api/orders/reserve HTTP/1.1
 Authorization: Bearer {jwt_token}
 
-{ "cartItems": [...], "address": {...} }
+{ "items": [...], "shippingAddress": "..." }
 ```
 
-### 2. Gateway validates JWT, extracts claims, injects headers, routes to Order Service `:8085`
+### 2. Gateway validates JWT, extracts claims, injects headers, routes to Order Service `:8084`
 
 ### 3. Order Service:
-   - Calls Inventory Service `:8083` to reserve stock (optimistic lock)
-   - Calls Payment Service `:8086` to process payment (with retry)
-   - Creates Order in database
-   - Publishes `OrderPaidEvent`
+   - Calls Inventory Service `:8083` via Feign to reserve stock (guarded by `@Version` lock)
+   - Returns temporary reservation order (status `RESERVED`)
+   - Client pays using Stripe session or Mock processor on Payment Service `:8085`
+   - Payment success webhook triggers `/orders/{id}/confirm` on Order Service
+   - Order Service changes status to `CONFIRMED` and dispatches notification REST call to Notification Service `:8086`
 
-### 4. Order Service returns `OrderResponse` to Gateway
+### 4. Notification Service:
+   - Persists notification in `notification_db`
+   - Broadcasts payload down the client's STOMP WebSocket subscriber topic `/topic/notifications/{userId}`
 
-### 5. Notification Service (listening to events):
-   - Receives `OrderPaidEvent`
-   - Sends mock email: "Order Confirmed"
-
-### 6. Frontend receives order confirmation
+### 5. Frontend receives order confirmation alert in real-time
 
 ---
 
 ## Key Architecture Decisions
 
-### Why Optimistic Locking for Inventory?
+### Why Optimistic Locking for Inventory & Cart?
 
 - **Better throughput** in high-traffic scenarios
 - **No deadlocks** under concurrent load
-- **Automatic retry** in service layer (transparent to caller)
+- **Automatic retry** in service layer
 - Proven pattern for e-commerce platforms
 
-### Why Spring ApplicationEventPublisher for Notifications?
+### Why WebSocket Broadcasts for Notifications?
 
-- **In-process events** = <1ms latency
-- **No message broker overhead** = simpler dev environment
-- **Transactional consistency** = events published in same transaction as order creation
-- **Eventual consistency is fine** for notifications (1-5 second delay acceptable)
+- **Real-time push delivery** to client UI
+- **Online/Offline support** via relational persistence in `notification_db`
+- **Low latency** compared to polling models
 
 ### Why Database Per Service?
 
 - **Independent scaling** = each service controls its database
-- **Loose coupling** = services don't share data
-- **Deployment flexibility** = can upgrade database per service
-- **Data consistency trade-off** = accept eventual consistency for reads across services
+- **Loose coupling** = services don't share data schema
+- **Deployment flexibility** = can upgrade database per service independently
 
 ---
 
