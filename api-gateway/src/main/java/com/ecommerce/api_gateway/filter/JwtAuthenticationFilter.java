@@ -53,6 +53,13 @@ public class JwtAuthenticationFilter implements GlobalFilter {
     @Value("${gateway.internal-secret}")
     private String gatewaySecret;
 
+    // Optional read-only anonymous access for a portfolio demo (GET only).
+    @Value("${jwt.public-read-routes:}")
+    private List<String> publicReadRoutes;
+
+    @Value("${jwt.public-read-user-id:00000000-0000-0000-0000-000000000000}")
+    private String publicReadUserId;
+
     private PublicKey publicKey;
 
     @PostConstruct
@@ -84,10 +91,34 @@ public class JwtAuthenticationFilter implements GlobalFilter {
         String path = request.getPath().value();
         log.info("Gateway received request path: {}", path);
 
-        // Skip JWT validation for public routes but still add gateway secret
+        // Skip JWT validation for public routes but still add gateway secret.
+        // Always REPLACE identity headers so a client cannot spoof X-User-Roles.
         if (isPublicPath(path)) {
             ServerHttpRequest mutatedRequest = request.mutate()
-                    .header(GATEWAY_SECRET_HEADER, gatewaySecret)
+                    .headers(headers -> {
+                        headers.remove(USER_ID_HEADER);
+                        headers.remove(USER_EMAIL_HEADER);
+                        headers.remove(USER_ROLES_HEADER);
+                        headers.remove(GATEWAY_SECRET_HEADER);
+                        headers.add(GATEWAY_SECRET_HEADER, gatewaySecret);
+                    })
+                    .build();
+            return chain.filter(exchange.mutate().request(mutatedRequest).build());
+        }
+
+        // Anonymous read-only access to the catalogue (GET only) for portfolio visitors.
+        if (isPublicRead(request, path)) {
+            ServerHttpRequest mutatedRequest = request.mutate()
+                    .headers(headers -> {
+                        headers.remove(USER_ID_HEADER);
+                        headers.remove(USER_EMAIL_HEADER);
+                        headers.remove(USER_ROLES_HEADER);
+                        headers.remove(GATEWAY_SECRET_HEADER);
+                        headers.add(USER_ID_HEADER, publicReadUserId);
+                        headers.add(USER_EMAIL_HEADER, "");
+                        headers.add(USER_ROLES_HEADER, "USER");
+                        headers.add(GATEWAY_SECRET_HEADER, gatewaySecret);
+                    })
                     .build();
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
         }
@@ -117,12 +148,18 @@ public class JwtAuthenticationFilter implements GlobalFilter {
                 return unauthorized(exchange.getResponse(), "Token missing user ID");
             }
 
-            // Add headers to forwarded request
+            // Replace (never append) identity headers to prevent header spoofing.
             ServerHttpRequest mutatedRequest = request.mutate()
-                    .header(USER_ID_HEADER, userId)
-                    .header(USER_EMAIL_HEADER, email != null ? email : "")
-                    .header(USER_ROLES_HEADER, roles != null ? String.join(",", roles) : "USER")
-                    .header(GATEWAY_SECRET_HEADER, gatewaySecret)
+                    .headers(headers -> {
+                        headers.remove(USER_ID_HEADER);
+                        headers.remove(USER_EMAIL_HEADER);
+                        headers.remove(USER_ROLES_HEADER);
+                        headers.remove(GATEWAY_SECRET_HEADER);
+                        headers.add(USER_ID_HEADER, userId);
+                        headers.add(USER_EMAIL_HEADER, email != null ? email : "");
+                        headers.add(USER_ROLES_HEADER, roles != null ? String.join(",", roles) : "USER");
+                        headers.add(GATEWAY_SECRET_HEADER, gatewaySecret);
+                    })
                     .build();
 
             return chain.filter(exchange.mutate().request(mutatedRequest).build());
@@ -137,6 +174,13 @@ public class JwtAuthenticationFilter implements GlobalFilter {
             log.warn("Token validation failed: {}", e.getMessage());
             return unauthorized(exchange.getResponse(), "Token validation failed");
         }
+    }
+
+    private boolean isPublicRead(ServerHttpRequest request, String path) {
+        if (!"GET".equalsIgnoreCase(request.getMethod().name())) {
+            return false;
+        }
+        return publicReadRoutes != null && publicReadRoutes.stream().anyMatch(path::matches);
     }
 
     private boolean isPublicPath(String path) {

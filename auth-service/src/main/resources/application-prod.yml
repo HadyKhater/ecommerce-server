@@ -1,0 +1,35 @@
+# Production overrides. Local development uses application.yml unchanged.
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:auth_db}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:911911}
+  jpa:
+    show-sql: false
+
+# RSA keys are injected from the platform environment (never from Git).
+# #{null} keeps the file-based fallback working when the variables are absent.
+jwt:
+  private-key: ${JWT_PRIVATE_KEY:#{null}}
+  public-key: ${JWT_PUBLIC_KEY:#{null}}
+  key-file-path: ${JWT_KEY_FILE_PATH:keys/auth-keypair.pem}
+
+eureka:
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:auth-service}
+    prefer-ip-address: false
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

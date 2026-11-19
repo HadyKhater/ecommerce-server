@@ -1,0 +1,36 @@
+server:
+  port: ${SERVER_PORT:8085}
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:payment_db}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:911911}
+  jpa:
+    show-sql: false
+
+eureka:
+  instance:
+    hostname: ${EUREKA_INSTANCE_HOSTNAME:payment-service}
+    prefer-ip-address: false
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+
+# Stripe keys come from the environment in production; test URLs default to
+# localhost so nothing breaks for local development.
+stripe:
+  api-key: ${STRIPE_SECRET_KEY:}
+  public-key: ${STRIPE_PUBLIC_KEY:}
+  webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+  success-url: ${STRIPE_SUCCESS_URL:http://localhost:4200/payment/success?sessionId={CHECKOUT_SESSION_ID}}
+  cancel-url: ${STRIPE_CANCEL_URL:http://localhost:4200/payment/cancel}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

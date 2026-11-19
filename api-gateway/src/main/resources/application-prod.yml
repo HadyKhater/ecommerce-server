@@ -1,20 +1,30 @@
 # Production Profile Configuration
-# This profile is activated when running with -Dspring.profiles.active=prod
-# or when SPRING_PROFILES_ACTIVE=prod environment variable is set
-#
-# Production settings enforce stricter rate limiting for security and stability
-
+# CORS lives HERE ONLY - downstream services never emit CORS headers.
 gateway:
   rate-limit:
-    # Rate limiting is always enabled in production
     enabled: true
-    
-    # Conservative limits for production security
-    # 100 requests per minute per IP address
     max-requests: 100
     window-seconds: 60
 
-# Production logging - minimal and focused
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+
+auth:
+  service:
+    url: ${AUTH_SERVICE_URL:http://localhost:8081}
+
+jwt:
+  public-key: ${JWT_PUBLIC_KEY:#{null}}
+  # Portfolio visitors can browse the catalogue without logging in.
+  # GET only; all write/admin endpoints still require a real JWT.
+  public-read-routes: /api/products,/api/products/all,/api/products/(?!me$)[a-zA-Z0-9-]+,/api/products/[^/]+/images,/api/categories,/api/categories/[a-zA-Z0-9-]+,/api/categories/slug/[^/]+,/api/promotions/active
+  public-routes:
+    - /api/auth/login
+    - /api/auth/register
+    - /api/auth/refresh
+    - /api/banners/public
+    - /api/ws
+
 logging:
   level:
     root: WARN
@@ -23,7 +33,14 @@ logging:
     com.netflix.discovery: OFF
     org.springframework.cloud.gateway: WARN
 
-# Production server settings
 server:
-  # Disable graceful shutdown in production for immediate termination
   shutdown: immediate
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never

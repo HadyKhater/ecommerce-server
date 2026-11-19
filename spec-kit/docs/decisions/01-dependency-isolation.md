@@ -27,4 +27,4 @@ The parent POM should only contain dependencies that are truly common across ALL
    - Eureka: http://localhost:8761 (should show Eureka dashboard)
    - API Gateway: http://localhost:8080/health (should return "API Gateway is healthy")
 5. **Verify no database-related logs**: Look for absence of DataSource/Hibernate initialization messages in startup logs</content>
-<parameter name="filePath">D:\NTG Clairty\ecommerce-server\spec-kit\docs\tasks\01-dependency-isolation.md
+<parameter name="filePath">spec-kit/docs/tasks/01-dependency-isolation.md
